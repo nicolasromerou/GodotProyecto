@@ -1,0 +1,2 @@
+# GodotProyecto
+semaforo autonomo
