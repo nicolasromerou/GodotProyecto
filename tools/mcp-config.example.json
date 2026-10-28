@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "fti-godot-local": {
+      "command": "python",
+      "args": [
+        "C:/ruta/GodotProyecto/tools/mcp_server.py"
+      ],
+      "env": {
+        "GODOT_PATH": "C:/ruta/Godot_v4.7.2-stable_win64.exe"
+      }
+    }
+  }
+}

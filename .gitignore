@@ -1,0 +1,8 @@
+.godot/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
