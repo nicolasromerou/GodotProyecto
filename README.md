@@ -2,6 +2,8 @@
 
 Demo 3D en **Godot 4.7.2**, con nueve cruces conectados y los modelos STL de SUV, pickup y bus. Integra las funciones de control y diagnóstico del simulador HTML v3 en un núcleo GDScript independiente de la vista.
 
+[Resumen de los cambios y su validación](RESUMEN-CAMBIOS.md).
+
 ## Ejecutar
 
 Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. Para ejecutar la demo no necesitas Python, Node ni conexión a Internet.
