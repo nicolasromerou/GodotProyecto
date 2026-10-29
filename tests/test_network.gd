@@ -37,8 +37,10 @@ func _run() -> void:
 		var ids: Dictionary = {}
 		for car in net.vehicles: ids[int(car.id)] = true
 		var valid: bool = true
+		var mid_crossings: int = 0
 		for step in range(7200):
 			net.tick(1.0 / 60.0)
+			if step == 3599: mid_crossings = int(net.metrics().crossings)
 			if step % 10 == 0 and not safe(net):
 				valid = false
 				break
@@ -50,6 +52,7 @@ func _run() -> void:
 			distinct[int(car.id)] = true
 		check(conserved and distinct.size() == 36, mode + ": conserva identidades sin duplicar ni perder vehículos")
 		check(net.transfers > 10 and net.metrics().crossings > 20, mode + ": tráfico pasa entre cruces")
+		check(int(net.metrics().crossings) - mid_crossings > 15, mode + ": continúa completando cruces durante el segundo minuto")
 		check(net.rows.size() == 1080 and net.history[4].size() == 60, mode + ": muestreo por segundo y 60 s de historial")
 		print("NETWORK_METRICS ", mode, " ", JSON.stringify(net.metrics()))
 	net.load_scenario("empty")

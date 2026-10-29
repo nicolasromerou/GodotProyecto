@@ -302,7 +302,7 @@ func _build_reference_panel(layer: CanvasLayer) -> void:
 	close_button.text = "Volver a la simulación · Esc"
 	close_button.pressed.connect(func(): reference_panel.hide())
 	layout.add_child(close_button)
-	layout.add_child(_label("Plano de referencia · su geometría aún no sustituye los carriles de la simulación", 18, Color.WHITE))
+	layout.add_child(_label("Plano original · base del trazado reconstruido en 3D", 18, Color.WHITE))
 	var picture := TextureRect.new()
 	picture.texture = load("res://calle/Cruce_Calles.png")
 	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE

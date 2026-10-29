@@ -4,6 +4,7 @@ extends RefCounted
 const Controller = preload("res://scripts/traffic_controller.gd")
 const Math = preload("res://scripts/traffic_math.gd")
 const Fleet = preload("res://scripts/fleet_catalog.gd")
+const RoadProfile = preload("res://scripts/road_profile.gd")
 const APPROACH_FOR_HEADING := ["N", "W", "S", "E"]
 const SENSOR_INDEX_FOR_HEADING := [0, 3, 2, 1]
 const STOP_LINE: float = 15.4
@@ -22,6 +23,27 @@ var statistics: Dictionary = {}
 var external_vehicles: Array = []
 var departed_vehicles: Array = []
 var detector_depth: float = 55.0
+var road_profile: RefCounted = null
+var stop_line: float = STOP_LINE
+var turn_entry: float = 16.5
+var conflict_size: float = 28.0
+var release_distance: float = 24.0
+
+func configure_profile(is_central: bool = false) -> void:
+	road_profile = RoadProfile.new(is_central)
+	stop_line = RoadProfile.STOP_LINE
+	turn_entry = RoadProfile.TURN_ENTRY
+	conflict_size = RoadProfile.CONFLICT_SIZE
+	release_distance = RoadProfile.RELEASE_DISTANCE
+
+func straight_pose(heading: int, longitudinal: float) -> Dictionary:
+	if road_profile != null: return road_profile.pose_for_straight(heading, longitudinal)
+	var f: Vector2 = Math.forward(heading)
+	var point: Vector2 = f * longitudinal + Vector2(-f.y, f.x) * LANE_OFFSET
+	return {"x": point.x, "z": point.y, "yaw": Math.yaw_for(heading)}
+
+func approach_offset(heading: int) -> float:
+	return road_profile.approach_offset(heading) if road_profile != null else LANE_OFFSET
 
 func _init(populate: bool = true) -> void:
 	reset(populate)
@@ -53,9 +75,8 @@ func set_mode(mode: String) -> bool:
 
 func create_vehicle(heading: int, distance: float, planned_turn: int = 0) -> Dictionary:
 	heading = posmod(heading, 4)
-	var f: Vector2 = Math.forward(heading)
-	var point: Vector2 = -f * distance + Vector2(-f.y, f.x) * LANE_OFFSET
-	var vehicle: Dictionary = {"id": next_id, "x": point.x, "z": point.y, "yaw": Math.yaw_for(heading), "heading": heading, "origin_heading": heading, "length": 4.8, "width": 2.0, "speed": 0.0, "acceleration": 0.0, "desired_speed": 12.0 + float(next_id % 3), "planned_turn": clampi(planned_turn, -1, 1), "turning": false, "turn_path": {}, "turn_distance": 0.0, "committed": false, "cleared": false, "braking": true, "wheel_distance": 0.0, "steering_angle": 0.0}
+	var pose: Dictionary = straight_pose(heading, -distance)
+	var vehicle: Dictionary = {"id": next_id, "x": pose.x, "z": pose.z, "yaw": pose.yaw, "heading": heading, "origin_heading": heading, "length": 4.8, "width": 2.0, "speed": 0.0, "acceleration": 0.0, "desired_speed": 12.0 + float(next_id % 3), "planned_turn": clampi(planned_turn, -1, 1), "turning": false, "turn_path": {}, "turn_distance": 0.0, "committed": false, "cleared": false, "braking": true, "wheel_distance": 0.0, "steering_angle": 0.0}
 	var spec: Dictionary = Fleet.for_id(next_id)
 	vehicle.length = spec.length
 	vehicle.width = spec.width
@@ -72,7 +93,7 @@ func _distance_to_center(vehicle: Dictionary) -> float:
 	return -Vector2(float(vehicle.x), float(vehicle.z)).dot(Math.forward(int(vehicle.heading)))
 
 func is_occupied() -> bool:
-	var center: Dictionary = {"x": 0.0, "z": 0.0, "yaw": 0.0, "length": 28.0, "width": 28.0}
+	var center: Dictionary = {"x": 0.0, "z": 0.0, "yaw": 0.0, "length": conflict_size, "width": conflict_size}
 	for vehicle: Dictionary in vehicles:
 		if Math.overlap(vehicle, center):
 			return true
@@ -85,7 +106,12 @@ func _sense() -> void:
 		if vehicle.cleared or vehicle.turning:
 			continue
 		var distance: float = _distance_to_center(vehicle)
-		if distance >= STOP_LINE and distance <= STOP_LINE + detector_depth:
+		if distance >= stop_line and distance <= stop_line + detector_depth:
+			if road_profile != null:
+				var expected: Vector2 = road_profile.point_for_straight(int(vehicle.heading), -distance)
+				var f: Vector2 = Math.forward(int(vehicle.heading))
+				var lateral: float = absf((Vector2(float(vehicle.x), float(vehicle.z)) - expected).dot(Vector2(-f.y, f.x)))
+				if lateral > RoadProfile.LANE_WIDTH * 0.5: continue
 			var index: int = SENSOR_INDEX_FOR_HEADING[int(vehicle.heading)]
 			counts[index] += 1
 			if float(vehicle.speed) < 14.0 / 3.6:
@@ -100,6 +126,12 @@ func _leader(vehicle: Dictionary) -> Dictionary:
 	for other: Dictionary in vehicles + external_vehicles:
 		if other.id == vehicle.id:
 			continue
+		# Un acceso contrario o transversal no es un líder del carril. En una
+		# curva, su proyección sobre la tangente puede caer delante del coche,
+		# aunque ocupe el carril opuesto. La reserva y SAT siguen evitando
+		# conflictos físicos; esta condición evita detener un giro seguro.
+		if cos(float(other.yaw) - float(vehicle.yaw)) <= 0.2:
+			continue
 		var delta := Vector2(float(other.x) - float(vehicle.x), float(other.z) - float(vehicle.z))
 		var longitudinal: float = delta.dot(f)
 		if longitudinal > 0.0 and longitudinal < 85.0 and absf(delta.dot(r)) < float(vehicle.width) * 0.5 + Math.projected_half(other, r) + 0.35:
@@ -111,9 +143,8 @@ func _leader(vehicle: Dictionary) -> Dictionary:
 
 func _exit_blocked(vehicle: Dictionary) -> bool:
 	var next_heading: int = posmod(int(vehicle.heading) - int(vehicle.planned_turn), 4)
-	var f: Vector2 = Math.forward(next_heading)
-	var point: Vector2 = f * 25.0 + Vector2(-f.y, f.x) * LANE_OFFSET
-	var target: Dictionary = {"x": point.x, "z": point.y, "yaw": Math.yaw_for(next_heading), "length": 14.0, "width": 2.5}
+	var pose: Dictionary = straight_pose(next_heading, turn_entry + 8.5)
+	var target: Dictionary = {"x": pose.x, "z": pose.z, "yaw": pose.yaw, "length": 14.0, "width": 2.5}
 	for other: Dictionary in vehicles + external_vehicles:
 		if other.id != vehicle.id and Math.overlap(target, other):
 			return true
@@ -128,7 +159,7 @@ func tick(dt: float) -> void:
 		_sense()
 	controller.step(dt, is_occupied())
 	for vehicle: Dictionary in vehicles:
-		if int(vehicle.id) == reservation and bool(vehicle.cleared) and _distance_to_center(vehicle) < -24.0:
+		if int(vehicle.id) == reservation and bool(vehicle.cleared) and _distance_to_center(vehicle) < -release_distance:
 			reservation = -1
 	for vehicle: Dictionary in vehicles:
 		_update_vehicle(vehicle, dt)
@@ -168,7 +199,7 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 	if vehicle.turning:
 		desired = 5.0 if int(vehicle.planned_turn) == 1 else 7.0 if int(vehicle.planned_turn) == -1 else desired
 	elif not vehicle.cleared:
-		var front_gap: float = distance - STOP_LINE - float(vehicle.length) * 0.5
+		var front_gap: float = distance - stop_line - float(vehicle.length) * 0.5
 		var light: String = controller.light(APPROACH_FOR_HEADING[int(vehicle.heading)])
 		var stop_for_light: bool = light == "RED" or (light == "YELLOW" and front_gap > maxf(1.0, float(vehicle.speed) * float(vehicle.speed) / 14.0))
 		if not bool(vehicle.committed):
@@ -190,10 +221,10 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		candidate.x = pose.x
 		candidate.z = pose.z
 		candidate.yaw = pose.yaw
-	elif not vehicle.cleared and distance >= 16.5 and distance - float(motion.distance) < 16.5 and reservation == int(vehicle.id):
+	elif not vehicle.cleared and distance >= turn_entry and distance - float(motion.distance) < turn_entry and reservation == int(vehicle.id):
 		candidate.turning = true
-		candidate.turn_path = Math.make_turn_path(int(vehicle.heading), int(vehicle.planned_turn), LANE_OFFSET)
-		candidate.turn_distance = maxf(0.0, float(motion.distance) - (distance - 16.5))
+		candidate.turn_path = road_profile.turn_path(int(vehicle.heading), int(vehicle.planned_turn)) if road_profile != null else Math.make_turn_path(int(vehicle.heading), int(vehicle.planned_turn), LANE_OFFSET, turn_entry)
+		candidate.turn_distance = maxf(0.0, float(motion.distance) - (distance - turn_entry))
 		var pose: Dictionary = Math.path_pose(candidate.turn_path, float(candidate.turn_distance))
 		candidate.x = pose.x
 		candidate.z = pose.z
@@ -202,10 +233,11 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		if int(vehicle.planned_turn) != 0:
 			statistics.turns += 1
 	else:
-		var f: Vector2 = Math.forward(int(vehicle.heading))
-		candidate.x = float(vehicle.x) + f.x * float(motion.distance)
-		candidate.z = float(vehicle.z) + f.y * float(motion.distance)
-		if not bool(vehicle.cleared) and reservation == int(vehicle.id) and distance - float(motion.distance) < STOP_LINE + float(vehicle.length) * 0.5:
+		var pose: Dictionary = straight_pose(int(vehicle.heading), -distance + float(motion.distance))
+		candidate.x = pose.x
+		candidate.z = pose.z
+		candidate.yaw = pose.yaw
+		if not bool(vehicle.cleared) and reservation == int(vehicle.id) and distance - float(motion.distance) < stop_line + float(vehicle.length) * 0.5:
 			candidate.committed = true
 	# No sustituye el seguimiento: última barrera SAT contra un avance que invada otro auto.
 	for other: Dictionary in vehicles + external_vehicles:
@@ -238,4 +270,4 @@ func snapshot() -> Dictionary:
 		var copy: Dictionary = vehicle.duplicate()
 		copy.erase("turn_path")
 		cars.append(copy)
-	return {"simulation_time": simulation_time, "sensor_enabled": sensor_enabled, "reservation": reservation, "occupied": is_occupied(), "controller": controller.snapshot(), "vehicles": cars, "statistics": statistics.duplicate()}
+	return {"simulation_time": simulation_time, "sensor_enabled": sensor_enabled, "reservation": reservation, "occupied": is_occupied(), "controller": controller.snapshot(), "vehicles": cars, "statistics": statistics.duplicate(), "road_profile": road_profile.metadata() if road_profile != null else {}}

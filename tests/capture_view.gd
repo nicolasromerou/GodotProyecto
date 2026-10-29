@@ -17,6 +17,12 @@ func _capture() -> void:
 			scene._update_camera()
 		elif argument == "view=inspector":
 			scene._open_inspector()
+		elif argument == "view=reference":
+			scene.side_panel.hide()
+			scene.interface_layer.hide()
+			scene.camera_distance = 175.0
+			scene.camera_target = Vector3(0, 0, -14)
+			scene._update_camera()
 	scene._sync_cars()
 	scene._update_hud()
 	await process_frame

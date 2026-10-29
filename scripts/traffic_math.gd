@@ -44,13 +44,15 @@ static func cubic_point(points: Array, t: float) -> Dictionary:
 	var derivative: Vector2 = (points[1] - points[0]) * 3.0 * u * u + (points[2] - points[1]) * 6.0 * u * t + (points[3] - points[2]) * 3.0 * t * t
 	return {"x": point.x, "z": point.y, "yaw": atan2(derivative.x, derivative.y)}
 
-static func make_turn_path(heading: int, turn: int, offset: float = 3.5, entry: float = 16.5) -> Dictionary:
+static func make_turn_path(heading: int, turn: int, offset: float = 3.5, entry: float = 16.5, end_offset: float = -1.0) -> Dictionary:
 	var next_heading: int = posmod(heading - turn, 4)
 	var f: Vector2 = forward(heading)
 	var g: Vector2 = forward(next_heading)
 	var start: Vector2 = -f * entry + Vector2(-f.y, f.x) * offset
-	var finish: Vector2 = g * entry + Vector2(-g.y, g.x) * offset
-	var radius: float = entry - offset if turn == 1 else entry + offset
+	var final_offset: float = offset if end_offset < 0.0 else end_offset
+	var finish: Vector2 = g * entry + Vector2(-g.y, g.x) * final_offset
+	var average_offset: float = (offset + final_offset) * 0.5
+	var radius: float = entry - average_offset if turn == 1 else entry + average_offset
 	var k: float = 0.55228475 * radius if turn != 0 else entry * 2.0 / 3.0
 	var points: Array = [start, start + f * k, finish - g * k, finish]
 	var length: float = 0.0

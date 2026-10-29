@@ -17,15 +17,19 @@ Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. 
 - **Escenarios reproducibles:** normal (36 vehículos), hora punta por eje (54), ausencia de demanda e incidente con recuperación a los 12 s.
 - **Comparación de algoritmos:** ejecuta los tres modos durante 120 s con la misma flota y escenario en una red independiente. Conserva la demo visible y permite cancelar.
 - **Telemetría y exportación:** historial de demanda, registro de eventos, métricas CSV, configuración JSON y CSV de comparación.
-- **Vista libre, seguimiento y vista de red**, edificios transparentes, zonas de detección y volúmenes de colisión.
+- **Calle reconstruida desde el PNG:** avenida norte dividida, mediana arbolada, bordillos curvos, cebras y doble amarilla, con rutas y sensores alineados.
+- **Entorno urbano:** edificios bajos con fachadas, jardines, estacionamientos, árboles, farolas y bancos.
+- **Vista libre, seguimiento y vista de red**, transparencia opcional, zonas de detección, volúmenes de colisión y presentación sin interfaz con F2.
 - **Inspector de la flota:** muestra los tres STL y pausa la ciudad; al salir recupera su estado anterior.
 - **Paso fijo de 60 Hz**, velocidades ×0,5/×1/×2/×4, interpolación y señalización agrupada con MultiMesh para reducir llamadas de dibujo.
+
+La reconstrucción vial se detalla en [CALLE-DESDE-REFERENCIA.md](CALLE-DESDE-REFERENCIA.md).
 
 Consulta [DEMO-INTELIGENTE.md](DEMO-INTELIGENTE.md) para el recorrido de presentación, las pruebas y el alcance.
 
 ## Controles
 
-Botón derecho: orbitar. Rueda: zoom. Inicio: centrar el cruce observado. Espacio: pausa. F1: alternar el panel. Esc: cerrar plano/inspector o cancelar comparación. Las pestañas **Control**, **Demo**, **Vista** y **Datos** reúnen los controles de la aplicación.
+Botón derecho: orbitar. Rueda: zoom. Inicio: centrar el cruce observado. Espacio: pausa. F1: alternar el panel. F2: presentación sin interfaz. Esc: cerrar plano/inspector o cancelar comparación. Las pestañas **Control**, **Demo**, **Vista** y **Datos** reúnen los controles de la aplicación.
 
 ## Pruebas
 
@@ -38,6 +42,8 @@ godot --headless --path . --script res://tests/test_world.gd
 godot --headless --path . --script res://tests/test_network.gd
 godot --headless --path . --script res://tests/test_demo.gd
 godot --headless --path . --script res://tests/test_fleet.gd
+godot --headless --path . --script res://tests/test_road_profile.gd
+godot --headless --path . --script res://tests/test_reference_scene.gd
 ```
 
 El puente MCP y sus pruebas requieren Python 3.10 o posterior, sin paquetes adicionales:
@@ -65,4 +71,4 @@ Para añadir vehículos en el futuro, incorpora su STL binario y una entrada al 
 
 ## Alcance
 
-Un carril por sentido y reserva exclusiva de un vehículo por cruce. El tráfico es cinemático y usa SAT para impedir invasiones; no simula suspensión ni daños físicos. El plano PNG es una referencia consultable y no sustituye la calzada. Quedan fuera de esta demo la conducción manual, peatones, cambios de carril, paradas de bus y animación independiente de ruedas. Los modelos usan materiales sólidos, sin texturas UV nuevas.
+Un carril por sentido y reserva exclusiva de un vehículo por cruce. El tráfico es cinemático y usa SAT para impedir invasiones; no simula suspensión ni daños físicos. El trazado del cruce central se reconstruyó en 3D a partir de `calle/Cruce_Calles.png`, con avenida norte dividida, mediana y esquinas curvas. Quedan fuera de esta demo la conducción manual, peatones, cambios de carril, paradas de bus y animación independiente de ruedas. Los modelos usan materiales sólidos, sin texturas UV nuevas.

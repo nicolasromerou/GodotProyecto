@@ -5,11 +5,15 @@ const Catalog = preload("res://scripts/fleet_catalog.gd")
 const Chart = preload("res://scripts/demand_chart.gd")
 var city_root: Node3D
 var sensor_root: Node3D
+var street_info: Dictionary = {}
+var environment_info: Dictionary = {}
+var fade_materials: Array = []
 var building_material: StandardMaterial3D
 var cross_select: OptionButton
 var camera_select: OptionButton
 var side_panel: PanelContainer
 var top_panel: PanelContainer
+var interface_layer: CanvasLayer
 var inspector_side_was_visible: bool = true
 var scenario_select: OptionButton
 var sensor_labels: Array[Label] = []
@@ -24,8 +28,8 @@ var camera_mode: int = 0
 var follow_id: int = -1
 var camera_target := Vector3.ZERO
 var collider_enabled: bool = false
-var zones_enabled: bool = true
-var transparent_buildings: bool = true
+var zones_enabled: bool = false
+var transparent_buildings: bool = false
 var export_dialog: FileDialog
 var export_kind: String = "csv"
 var inspector_active: bool = false
@@ -57,6 +61,29 @@ func _ready() -> void:
 	_select_cross(4)
 	_update_hud()
 
+func _build_environment() -> void:
+	super._build_environment()
+	camera.fov = 45.0
+	for child in get_children():
+		if child is WorldEnvironment:
+			var sky_material := ProceduralSkyMaterial.new()
+			sky_material.sky_top_color = Color("7597af")
+			sky_material.sky_horizon_color = Color("cbd3cd")
+			sky_material.ground_bottom_color = Color("7f8b78")
+			sky_material.ground_horizon_color = Color("cbd3cd")
+			var sky := Sky.new()
+			sky.sky_material = sky_material
+			child.environment.sky = sky
+			child.environment.background_mode = Environment.BG_SKY
+			child.environment.ambient_light_color = Color("dbe4eb")
+			child.environment.ambient_light_energy = 0.27
+			child.environment.ambient_light_sky_contribution = 0.0
+		if child is DirectionalLight3D:
+			child.rotation_degrees = Vector3(-54, -27, 0)
+			child.light_color = Color("fff0d5")
+			child.light_energy = 0.76
+			child.directional_shadow_max_distance = 340
+
 func _physics_process(delta: float) -> void:
 	if not paused:
 		accumulator += minf(delta, 0.2) * time_scale
@@ -75,7 +102,7 @@ func _process(delta: float) -> void:
 	if inspector_active:
 		_update_studio_camera()
 	else:
-		var target := Vector3(world.centers[world.selected].x, 0, world.centers[world.selected].y)
+		var target := Vector3(world.centers[world.selected].x, 0, world.centers[world.selected].y - 8.0)
 		if camera_mode == 2: target = Vector3.ZERO
 		if camera_mode == 1:
 			for car in world.vehicles:
@@ -101,6 +128,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ESCAPE and reference_panel.visible: reference_panel.hide()
 		elif event.keycode == KEY_SPACE: _toggle_pause()
 		elif event.keycode == KEY_F1: side_panel.visible = not side_panel.visible
+		elif event.keycode == KEY_F2: interface_layer.visible = not interface_layer.visible
 	elif event is InputEventMouseMotion and (event.button_mask & (MOUSE_BUTTON_MASK_RIGHT | MOUSE_BUTTON_MASK_MIDDLE)):
 		camera_yaw -= event.relative.x * 0.006
 		camera_elevation = clampf(camera_elevation + event.relative.y * 0.004, 0.30, 1.48)
@@ -136,55 +164,28 @@ func _build_city() -> void:
 	add_child(city_root)
 	sensor_root = Node3D.new()
 	city_root.add_child(sensor_root)
-	var asphalt := _material(Color("25333e"))
-	var white := _material(Color("d0d9d8"))
-	var yellow := _material(Color("cfb862"))
-	var pavement := _material(Color("42565a"))
-	_box(city_root, Vector3(660, 0.3, 660), Vector3(0, -0.3, 0), _material(Color("244842")))
-	var marks: Array = []
-	var center_marks: Array = []
-	for coord in [-210.0, 0.0, 210.0]:
-		_box(city_root, Vector3(28, 0.12, 630), Vector3(coord, -0.04, 0), asphalt)
-		_box(city_root, Vector3(630, 0.12, 28), Vector3(0, -0.039, coord), asphalt)
-		for step in range(-57, 58):
-			var along: float = step * 5.5
-			var near_cross: float = absf(wrapf(along + 105.0, 0.0, 210.0) - 105.0)
-			if near_cross < 18.0: continue
-			for side in [-1, 1]:
-				_mark(marks, Vector3(0.14, 0.02, 5.5), Vector3(coord + side * 7, 0.04, along))
-				_mark(marks, Vector3(5.5, 0.02, 0.14), Vector3(along, 0.04, coord + side * 7))
-			_mark(center_marks, Vector3(0.16, 0.02, 5.5), Vector3(coord, 0.05, along))
-			_mark(center_marks, Vector3(5.5, 0.02, 0.16), Vector3(along, 0.05, coord))
-	building_material = _material(Color(0.38, 0.52, 0.61, 0.22))
-	building_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	building_material = _material(Color("bfc2bc"))
+	street_info = preload("res://scripts/reference_street.gd").build(city_root, world.centers, building_material)
+	var setting: Dictionary = preload("res://scripts/reference_environment.gd").build(city_root, world.centers, building_material, street_info.get("tree_positions", []))
+	fade_materials = setting.get("fade_materials", [])
+	environment_info = setting
 	for index in range(9):
-		var c: Vector2 = world.centers[index]
-		for sx in [-1, 1]:
-			for sz in [-1, 1]:
-				_box(city_root, Vector3(85, 0.24, 85), Vector3(c.x + sx * 59, 0, c.y + sz * 59), pavement)
-				var height: float = 18.0 + (index * 7 + sx + sz + 7) % 4 * 8
-				_box(city_root, Vector3(39, height, 39), Vector3(c.x + sx * 60, height * 0.5, c.y + sz * 60), building_material)
-		for side in [-1, 1]:
-			_mark(marks, Vector3(12, 0.03, 0.35), Vector3(c.x - side * 6.9, 0.065, c.y - side * 15.4))
-			_mark(marks, Vector3(0.35, 0.03, 12), Vector3(c.x + side * 15.4, 0.065, c.y - side * 6.9))
-			for stripe in range(6):
-				_mark(marks, Vector3(0.65, 0.02, 2.1), Vector3(c.x - 5.5 + stripe * 2.0, 0.06, c.y + side * 13.4))
-				_mark(marks, Vector3(2.1, 0.02, 0.65), Vector3(c.x + side * 13.4, 0.06, c.y - 5.5 + stripe * 2.0))
 		_build_node_signals(index)
+		var c: Vector2 = world.centers[index]
 		var label := Label3D.new()
-		label.text = "I-%d" % (index + 1)
-		label.position = Vector3(c.x - 22, 1, c.y - 22)
-		label.font_size = 48
-		label.pixel_size = 0.08
+		label.text = "I-%d%s" % [index + 1, " · CENTRAL" if index == 4 else ""]
+		label.position = Vector3(c.x - 16, 1.2, c.y + 23)
+		label.font_size = 38
+		label.pixel_size = 0.045
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.modulate = Color("e3eedf")
 		city_root.add_child(label)
-	_batch(marks, white)
-	_batch(center_marks, yellow)
+	_set_buildings(false)
 	_update_zones()
 
 func _build_node_signals(index: int) -> void:
 	var c: Vector2 = world.centers[index]
-	var positions = [Vector2(-10, -17), Vector2(17, -10), Vector2(10, 17), Vector2(-17, 10)]
+	var positions = [Vector2(-12.7 if index == 4 else -9.2, -20), Vector2(20, -9.2), Vector2(9.2, 20), Vector2(-20, 9.2)]
 	var pole := _material(Color("7a9196"))
 	var housing := _material(Color("111d27"))
 	for approach in range(4):
@@ -214,13 +215,31 @@ func _update_zones() -> void:
 		child.queue_free()
 	var c: Vector2 = world.centers[world.selected]
 	var depth: float = world.detector_depth
+	var junction = world.junctions[world.selected]
 	for heading in range(4):
-		var f: Vector2 = preload("res://scripts/traffic_math.gd").forward(heading)
-		var point: Vector2 = c - f * (15.4 + depth * 0.5) + Vector2(-f.y, f.x) * 3.5
-		var material := _material(Color(0.1, 0.85, 0.72, 0.17))
+		var vertices := PackedVector3Array()
+		for segment in range(20):
+			var quad: Array[Vector3] = []
+			for edge in [segment, segment + 1]:
+				var pose: Dictionary = junction.straight_pose(heading, -junction.stop_line - depth * edge / 20.0)
+				var lateral := Vector2(cos(float(pose.yaw)), -sin(float(pose.yaw))) * 1.55
+				var point := Vector2(pose.x, pose.z) + c
+				quad.append(Vector3(point.x - lateral.x, 0.09, point.y - lateral.y))
+				quad.append(Vector3(point.x + lateral.x, 0.09, point.y + lateral.y))
+			for vertex in [quad[0], quad[1], quad[2], quad[1], quad[3], quad[2]]: vertices.append(vertex)
+		var arrays: Array = []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = vertices
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var zone := MeshInstance3D.new()
+		zone.mesh = mesh
+		var material := _material(Color(0.08, 0.65, 0.53, 0.16))
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		var zone_size: Vector3 = Vector3(5.5, 0.015, depth) if heading % 2 == 0 else Vector3(depth, 0.015, 5.5)
-		_box(sensor_root, zone_size, Vector3(point.x, 0.08, point.y), material)
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		zone.material_override = material
+		sensor_root.add_child(zone)
 	sensor_root.visible = zones_enabled
 
 func _car_node(id: int) -> Node3D:
@@ -292,6 +311,7 @@ func _check(parent: Node, title: String, value: bool, callback: Callable) -> Che
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
+	interface_layer = layer
 	add_child(layer)
 	var top := PanelContainer.new()
 	top_panel = top
@@ -363,7 +383,7 @@ func _build_hud() -> void:
 	depth.value = 55
 	depth.value_changed.connect(func(value: float): world.set_depth(value); _update_zones())
 	control.add_child(depth)
-	_check(control, "Mostrar zonas", true, func(value: bool): zones_enabled = value; sensor_root.visible = value)
+	_check(control, "Mostrar zonas", false, func(value: bool): zones_enabled = value; sensor_root.visible = value)
 	var scenarios: VBoxContainer = _section(tabs, "Demo")
 	_text(scenarios, "ESCENARIOS REPRODUCIBLES", 13)
 	scenario_select = OptionButton.new()
@@ -386,11 +406,11 @@ func _build_hud() -> void:
 	for title in ["Libre · cruce observado", "Seguir un vehículo", "Vista de toda la red"]: cameras.add_item(title)
 	cameras.item_selected.connect(_set_camera_mode)
 	fleet.add_child(cameras)
-	_check(fleet, "Edificios transparentes", true, _set_buildings)
+	_check(fleet, "Edificios transparentes", false, _set_buildings)
 	_check(fleet, "Volúmenes de colisión", false, func(value: bool): collider_enabled = value)
 	_text(fleet, "Flota actual: SUV, pickup y bus. Las dimensiones de cada malla coinciden con sus volúmenes de tráfico.", 14)
 	_button(fleet, "Inspeccionar modelos", _open_inspector)
-	_text(fleet, "Arrastra con botón derecho para orbitar. Rueda: zoom. Inicio: centrar. Espacio: pausa.", 14)
+	_text(fleet, "Botón derecho: orbitar. Rueda: zoom. Inicio: centrar. Espacio: pausa. F1: panel. F2: presentación sin interfaz.", 14)
 	var data: VBoxContainer = _section(tabs, "Datos")
 	_text(data, "TELEMETRÍA · 9 CRUCES", 13)
 	_button(data, "Guardar métricas CSV", func(): _ask_export("csv"))
@@ -404,6 +424,8 @@ func _build_hud() -> void:
 	event_label.add_theme_font_size_override("normal_font_size", 13)
 	data.add_child(event_label)
 	notice_label = Label.new()
+	notice_label.add_theme_color_override("font_outline_color", Color("17242a"))
+	notice_label.add_theme_constant_override("outline_size", 5)
 	notice_label.text = "I-5 · Centro   |   9 cruces conectados · paso fijo 60 Hz"
 	notice_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	notice_label.offset_left = 24
@@ -421,10 +443,10 @@ func _build_hud() -> void:
 func _select_cross(index: int) -> void:
 	world.selected = index
 	camera_mode = 0
-	camera_distance = 155.0
-	camera_yaw = 0.62
-	camera_elevation = 0.88
-	camera_target = Vector3(world.centers[index].x, 0, world.centers[index].y)
+	camera_distance = 139.0
+	camera_yaw = 0.55
+	camera_elevation = 1.06
+	camera_target = Vector3(world.centers[index].x, 0, world.centers[index].y - 8.0)
 	if cross_select != null: cross_select.select(index)
 	if camera_select != null: camera_select.select(0)
 	_update_zones()
@@ -443,7 +465,7 @@ func _reset_world() -> void:
 
 func _set_camera_mode(value: int) -> void:
 	camera_mode = value
-	camera_distance = 880.0 if value == 2 else 80.0 if value == 1 else 155.0
+	camera_distance = 880.0 if value == 2 else 65.0 if value == 1 else 139.0
 	if value == 1:
 		for car in world.vehicles:
 			if int(car.junction) == world.selected:
@@ -454,6 +476,10 @@ func _set_buildings(value: bool) -> void:
 	transparent_buildings = value
 	building_material.albedo_color.a = 0.22 if value else 1.0
 	building_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if value else BaseMaterial3D.TRANSPARENCY_DISABLED
+	for material in fade_materials:
+		if material is StandardMaterial3D:
+			material.albedo_color.a = 0.22 if value else 1.0
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if value else BaseMaterial3D.TRANSPARENCY_DISABLED
 
 func _update_hud() -> void:
 	if status_label == null: return

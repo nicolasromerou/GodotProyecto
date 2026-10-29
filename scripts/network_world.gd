@@ -50,6 +50,7 @@ func load_scenario(key: String) -> bool:
 	sensor_enabled = true
 	for index in range(9):
 		var junction = Junction.new(false)
+		junction.configure_profile(index == 4)
 		junction.set_mode(mode)
 		junction.detector_depth = detector_depth
 		junction.next_id = index * 10000 + 1
@@ -152,10 +153,10 @@ func _transfer(index: int, vehicle: Dictionary) -> void:
 	var target: int = posmod(next_row, 3) * 3 + posmod(next_col, 3)
 	var candidate: Dictionary = vehicle.duplicate()
 	if wrapped:
-		var f: Vector2 = Math.forward(heading)
-		var point: Vector2 = -f * 104.8 + Vector2(-f.y, f.x) * Junction.LANE_OFFSET
-		candidate.x = point.x
-		candidate.z = point.y
+		var pose: Dictionary = junctions[target].straight_pose(heading, -104.8)
+		candidate.x = pose.x
+		candidate.z = pose.z
+		candidate.yaw = pose.yaw
 	else:
 		candidate.x = float(vehicle.x) + centers[index].x - centers[target].x
 		candidate.z = float(vehicle.z) + centers[index].y - centers[target].y
@@ -214,8 +215,11 @@ func csv_text() -> String:
 
 func config() -> Dictionary:
 	var online: Array = []
-	for junction in junctions: online.append(junction.sensor_enabled)
-	return {"schema": 1, "mode": mode, "scenario": scenario, "detector_depth": detector_depth, "selected": selected, "sensors": online, "junctions": 9, "spacing": SPACING, "tick_hz": 60}
+	var profiles: Array = []
+	for junction in junctions:
+		online.append(junction.sensor_enabled)
+		profiles.append(junction.road_profile.metadata())
+	return {"schema": 2, "mode": mode, "scenario": scenario, "detector_depth": detector_depth, "selected": selected, "sensors": online, "junctions": 9, "spacing": SPACING, "tick_hz": 60, "road_profile": junctions[selected].road_profile.metadata(), "road_profiles": profiles}
 
 func snapshot() -> Dictionary:
 	var nodes: Array = []

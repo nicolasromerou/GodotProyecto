@@ -38,10 +38,12 @@ La espera mostrada en el CSV y el comparador es el tiempo detenido acumulado med
 
 - Controlador: 36 comprobaciones, con 14.400 estados iguales a JavaScript.
 - Tráfico unitario: 20 pruebas de frenado, rutas, seguridad y recuperación.
-- Red: 28 pruebas; 120 s por modo con 36 vehículos, sin solapamientos observados ni verdes conflictivos en las comprobaciones. Comprueba además 120 s de hora punta por eje con 54 vehículos, y un obstáculo al otro lado del límite entre sectores. Conserva las identidades y prueba transferencias, sensores aislados, escenarios, prioridad temporal, recuperación e historial.
+- Red: 31 pruebas; 120 s por modo con 36 vehículos, sin solapamientos observados ni verdes conflictivos en las comprobaciones. Comprueba además 120 s de hora punta por eje con 54 vehículos, y un obstáculo al otro lado del límite entre sectores. Conserva las identidades y prueba transferencias, sensores aislados, escenarios, prioridad temporal, recuperación e historial.
 - Interfaz: 21 pruebas de selección, cámaras, visibilidad, inspector, escenarios, exportación y comparación/cancelación con conservación del estado.
+- Perfil vial: 13 pruebas de rutas, bus sobre el asfalto, sensores y regresión de seguimiento.
+- Diseño de referencia: 14 pruebas de geometría, entorno, transparencia y presentación.
 - Flota: tres STL, tamaños, apoyo, caché de mallas y correspondencia con los volúmenes lógicos.
-- MCP: 11 pruebas del ejecutor/protocolo e integración real de las cinco suites. Las instantáneas de la red se leen completas aunque se recorten los registros.
+- MCP: 11 pruebas del ejecutor/protocolo e integración real de las siete suites. Las instantáneas de la red se leen completas aunque se recorten los registros.
 
 Los ensayos no cubren todas las combinaciones posibles de demanda. Se conserva un modelo de circulación conservador con un carril por sentido y paso exclusivo por cruce.
 
@@ -54,3 +56,7 @@ El puente sigue siendo opcional y no está registrado automáticamente en el cli
 ```
 
 Las simulaciones MCP son procesos separados de la ventana abierta. `fti_run_tests` ejecuta controlador, tráfico, red, interfaz y flota. La suite completa puede tardar varios minutos. La configuración del cliente se explica en CONEXION-MCP.md.
+
+## Calle reconstruida desde la imagen
+
+La geometría, el entorno y los nuevos ensayos de bordillos/mediana se detallan en [CALLE-DESDE-REFERENCIA.md](CALLE-DESDE-REFERENCIA.md).

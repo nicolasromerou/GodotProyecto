@@ -21,13 +21,15 @@ PROJECT = Path(__file__).resolve().parent.parent
 PROTOCOLS = ("2025-03-26", "2024-11-05")
 MAX_MESSAGE_BYTES = 128 * 1024
 MAX_OUTPUT_BYTES = 20000
-TEST_SCRIPTS = ("res://tests/test_controller.gd", "res://tests/test_world.gd", "res://tests/test_network.gd", "res://tests/test_demo.gd", "res://tests/test_fleet.gd")
+TEST_SCRIPTS = ("res://tests/test_controller.gd", "res://tests/test_world.gd", "res://tests/test_network.gd", "res://tests/test_demo.gd", "res://tests/test_fleet.gd", "res://tests/test_road_profile.gd", "res://tests/test_reference_scene.gd")
 TEST_COMPLETIONS = {
     TEST_SCRIPTS[0]: r"Controller: [1-9]\d* checks; 0 failures",
     TEST_SCRIPTS[1]: r"WORLD_TESTS [1-9]\d* passed, 0 failed",
     TEST_SCRIPTS[2]: r"NETWORK_TESTS [1-9]\d* passed, 0 failed",
     TEST_SCRIPTS[3]: r"DEMO_TESTS [1-9]\d* passed, 0 failed",
     TEST_SCRIPTS[4]: r"FLEET_TESTS [1-9]\d* modelos y escena; 0 fallos",
+    TEST_SCRIPTS[5]: r"ROAD_PROFILE_TESTS [1-9]\d* passed, 0 failed",
+    TEST_SCRIPTS[6]: r"REFERENCE_SCENE_TESTS [1-9]\d* passed, 0 failed",
 }
 
 
