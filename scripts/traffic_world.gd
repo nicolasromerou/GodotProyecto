@@ -3,6 +3,7 @@ extends RefCounted
 ## La reserva exclusiva es deliberadamente conservadora para esta primera migración.
 const Controller = preload("res://scripts/traffic_controller.gd")
 const Math = preload("res://scripts/traffic_math.gd")
+const Fleet = preload("res://scripts/fleet_catalog.gd")
 const APPROACH_FOR_HEADING := ["N", "W", "S", "E"]
 const SENSOR_INDEX_FOR_HEADING := [0, 3, 2, 1]
 const STOP_LINE: float = 15.4
@@ -18,6 +19,9 @@ var reservation: int = -1
 var next_id: int = 1
 var pending_spawns: Array = []
 var statistics: Dictionary = {}
+var external_vehicles: Array = []
+var departed_vehicles: Array = []
+var detector_depth: float = 55.0
 
 func _init(populate: bool = true) -> void:
 	reset(populate)
@@ -27,6 +31,8 @@ func reset(populate: bool = true) -> void:
 	controller = Controller.new(selected_mode)
 	vehicles.clear()
 	pending_spawns.clear()
+	external_vehicles.clear()
+	departed_vehicles.clear()
 	simulation_time = 0.0
 	sensor_enabled = true
 	auto_spawn = populate
@@ -50,6 +56,10 @@ func create_vehicle(heading: int, distance: float, planned_turn: int = 0) -> Dic
 	var f: Vector2 = Math.forward(heading)
 	var point: Vector2 = -f * distance + Vector2(-f.y, f.x) * LANE_OFFSET
 	var vehicle: Dictionary = {"id": next_id, "x": point.x, "z": point.y, "yaw": Math.yaw_for(heading), "heading": heading, "origin_heading": heading, "length": 4.8, "width": 2.0, "speed": 0.0, "acceleration": 0.0, "desired_speed": 12.0 + float(next_id % 3), "planned_turn": clampi(planned_turn, -1, 1), "turning": false, "turn_path": {}, "turn_distance": 0.0, "committed": false, "cleared": false, "braking": true, "wheel_distance": 0.0, "steering_angle": 0.0}
+	var spec: Dictionary = Fleet.for_id(next_id)
+	vehicle.length = spec.length
+	vehicle.width = spec.width
+	vehicle.model = spec.key
 	for other: Dictionary in vehicles:
 		if Math.overlap(vehicle, other, 2.0):
 			return {}
@@ -75,10 +85,10 @@ func _sense() -> void:
 		if vehicle.cleared or vehicle.turning:
 			continue
 		var distance: float = _distance_to_center(vehicle)
-		if distance >= STOP_LINE and distance <= STOP_LINE + 55.0:
+		if distance >= STOP_LINE and distance <= STOP_LINE + detector_depth:
 			var index: int = SENSOR_INDEX_FOR_HEADING[int(vehicle.heading)]
 			counts[index] += 1
-			if float(vehicle.speed) < 2.0:
+			if float(vehicle.speed) < 14.0 / 3.6:
 				queues[index] += 1
 	controller.sense(counts, queues)
 
@@ -87,7 +97,7 @@ func _leader(vehicle: Dictionary) -> Dictionary:
 	var r := Vector2(f.y, -f.x)
 	var gap: float = INF
 	var leader_speed: float = float(vehicle.desired_speed)
-	for other: Dictionary in vehicles:
+	for other: Dictionary in vehicles + external_vehicles:
 		if other.id == vehicle.id:
 			continue
 		var delta := Vector2(float(other.x) - float(vehicle.x), float(other.z) - float(vehicle.z))
@@ -104,7 +114,7 @@ func _exit_blocked(vehicle: Dictionary) -> bool:
 	var f: Vector2 = Math.forward(next_heading)
 	var point: Vector2 = f * 25.0 + Vector2(-f.y, f.x) * LANE_OFFSET
 	var target: Dictionary = {"x": point.x, "z": point.y, "yaw": Math.yaw_for(next_heading), "length": 14.0, "width": 2.5}
-	for other: Dictionary in vehicles:
+	for other: Dictionary in vehicles + external_vehicles:
 		if other.id != vehicle.id and Math.overlap(target, other):
 			return true
 	return false
@@ -113,6 +123,7 @@ func tick(dt: float) -> void:
 	if dt <= 0.0 or dt > 0.1:
 		return # El llamante entrega pasos fijos; rechaza saltos que invalidan el frenado.
 	simulation_time += dt
+	departed_vehicles.clear()
 	if sensor_enabled:
 		_sense()
 	controller.step(dt, is_occupied())
@@ -126,6 +137,7 @@ func tick(dt: float) -> void:
 		if bool(vehicle.cleared) and _distance_to_center(vehicle) < -WORLD_LIMIT:
 			departed.append(vehicle)
 	for vehicle: Dictionary in departed:
+		departed_vehicles.append(vehicle)
 		vehicles.erase(vehicle)
 		statistics.departures += 1
 		if reservation == int(vehicle.id):
@@ -141,6 +153,12 @@ func tick(dt: float) -> void:
 		pending_spawns = remaining
 
 func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
+	vehicle.waiting_time = float(vehicle.get("waiting_time", 0.0)) + (dt if float(vehicle.speed) < 0.5 else 0.0)
+	if float(vehicle.get("incident_remaining", 0.0)) > 0.0:
+		vehicle.incident_remaining = maxf(0.0, float(vehicle.incident_remaining) - dt)
+		vehicle.speed = 0.0
+		vehicle.braking = true
+		return
 	var previous := Vector2(float(vehicle.x), float(vehicle.z))
 	var leader: Dictionary = _leader(vehicle)
 	var gap: float = float(leader.gap)
@@ -190,7 +208,7 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		if not bool(vehicle.cleared) and reservation == int(vehicle.id) and distance - float(motion.distance) < STOP_LINE + float(vehicle.length) * 0.5:
 			candidate.committed = true
 	# No sustituye el seguimiento: última barrera SAT contra un avance que invada otro auto.
-	for other: Dictionary in vehicles:
+	for other: Dictionary in vehicles + external_vehicles:
 		if other.id != vehicle.id and Math.overlap(candidate, other, 0.1):
 			vehicle.acceleration = -float(vehicle.speed) / dt
 			vehicle.speed = 0.0

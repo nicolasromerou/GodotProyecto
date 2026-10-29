@@ -10,6 +10,13 @@ func _capture() -> void:
 	scene._toggle_pause()
 	for _tick in range(1200):
 		scene.world.tick(1.0 / 60.0)
+	for argument in OS.get_cmdline_user_args():
+		if argument == "view=network":
+			scene._set_camera_mode(2)
+			scene.camera_target = Vector3.ZERO
+			scene._update_camera()
+		elif argument == "view=inspector":
+			scene._open_inspector()
 	scene._sync_cars()
 	scene._update_hud()
 	await process_frame

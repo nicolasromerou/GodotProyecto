@@ -61,7 +61,7 @@ class MCPTests(unittest.TestCase):
         self.assertFalse(reply["result"]["isError"])
         info = json.loads(reply["result"]["content"][0]["text"])
         self.assertFalse(info["live_editor_control"])
-        self.assertFalse(info["models_included"])
+        self.assertTrue(info["models_included"])
         self.assertEqual(Path(info["project"]), HERE.parent)
 
     def test_godot_integration(self):
@@ -141,9 +141,17 @@ class GodotRunnerTests(unittest.TestCase):
         with mock.patch.object(mcp_server, "run_godot", return_value={"ok": True}) as runner:
             result = mcp_server.call_tool("fti_run_tests", {}, Path("fake-godot"))
         self.assertTrue(result["ok"])
-        self.assertEqual(runner.call_count, 2)
+        self.assertEqual(runner.call_count, len(mcp_server.TEST_SCRIPTS))
         for call, script in zip(runner.call_args_list, mcp_server.TEST_SCRIPTS):
             self.assertEqual(call.kwargs["completion_pattern"], mcp_server.TEST_COMPLETIONS[script])
+
+    def test_large_snapshot_survives_output_clipping(self):
+        payload = {"vehicles": [{"id": i, "padding": "x" * 500} for i in range(80)]}
+        raw = ("FTI_JSON:" + json.dumps(payload) + "\n").encode()
+        with mock.patch.object(mcp_server.subprocess, "run", side_effect=self.fake_process(stdout=raw)):
+            result = mcp_server.call_tool("fti_simulate", {"network": True, "seconds": 1}, Path("fake"))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["snapshot"], payload)
 
 
 if __name__ == "__main__":

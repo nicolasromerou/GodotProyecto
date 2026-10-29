@@ -1,58 +1,68 @@
-# GodotProyecto
+# GodotProyecto · Semáforo inteligente
 
-Laboratorio de **semáforos autónomos y comportamiento vehicular en Godot 4.7.2**. Primera migración de la lógica FTI desde el simulador HTML a GDScript, con una vista 3D de prueba independiente del núcleo.
+Demo 3D en **Godot 4.7.2**, con nueve cruces conectados y los modelos STL de SUV, pickup y bus. Integra las funciones de control y diagnóstico del simulador HTML v3 en un núcleo GDScript independiente de la vista.
 
 ## Ejecutar
 
-1. Clona o descarga este repositorio.
-2. En Godot, selecciona **Importar**, abre `project.godot` y pulsa **F5**.
-3. Cambia entre FTI, adaptativo y fijo desde la barra superior. Desactiva los sensores virtuales para comprobar el respaldo fijo tras cinco segundos sin lecturas.
+Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. Para ejecutar la demo no necesitas Python, Node ni conexión a Internet.
 
-El proyecto se ejecuta sin Python, Node, modelos externos ni conexión a Internet. Python **3.10 o posterior** solo se necesita para las herramientas MCP y sus pruebas; Node solo para regenerar la referencia de JavaScript.
+![Demo en Godot](docs/demo.png)
 
-**Cámara:** botón derecho para orbitar, rueda para zoom e Inicio para restablecer. **Simulación:** Espacio para pausar; controles de tiempo ×1, ×2 y ×4.
+## Funciones de la demo
 
-## Funciones
+- **Red 3 × 3 real:** los vehículos circulan entre cruces, conservan su identidad y frenan también ante vehículos del sector vecino.
+- **FTI, adaptativo y fijo**, con amarillo y despeje antes de cambiar el verde. El controlador conserva la paridad con 14.400 estados del JavaScript original.
+- **Sensores por acceso**, colas, espera, profundidad ajustable de 25–85 m, fallos por cruce o globales y respaldo fijo tras 5 s sin lecturas.
+- **V2I temporal**, con transiciones seguras y cancelación automática a los 20 s. La solicitud de prueba se activa desde la pestaña Demo.
+- **Escenarios reproducibles:** normal (36 vehículos), hora punta por eje (54), ausencia de demanda e incidente con recuperación a los 12 s.
+- **Comparación de algoritmos:** ejecuta los tres modos durante 120 s con la misma flota y escenario en una red independiente. Conserva la demo visible y permite cancelar.
+- **Telemetría y exportación:** historial de demanda, registro de eventos, métricas CSV, configuración JSON y CSV de comparación.
+- **Vista libre, seguimiento y vista de red**, edificios transparentes, zonas de detección y volúmenes de colisión.
+- **Inspector de la flota:** muestra los tres STL y pausa la ciudad; al salir recupera su estado anterior.
+- **Paso fijo de 60 Hz**, velocidades ×0,5/×1/×2/×4, interpolación y señalización agrupada con MultiMesh para reducir llamadas de dibujo.
 
-- **FTI por demanda:** C1 → C2 → C3 → C4, omite accesos vacíos, verde de 5 s, amarillo de 2 s y todo rojo sin demanda.
-- **Fijo y adaptativo:** alternancia por ejes, equilibrio de colas y prioridad V2I con transiciones seguras.
-- **Despeje y respaldo:** mínimo de 1 s en rojo y comprobación de ocupación antes de un nuevo verde; respaldo fijo al perder sensores durante 5 s.
-- **Autos:** seguimiento y frenado, respeto de semáforos, giros cúbicos por distancia de arco, comprobaciones SAT y reposición segura por las entradas.
-- **Paso fijo de 60 Hz** e interpolación visual. Núcleo independiente de las mallas.
+Consulta [DEMO-INTELIGENTE.md](DEMO-INTELIGENTE.md) para el recorrido de presentación, las pruebas y el alcance.
 
-Esta etapa contiene **un cruce, un carril por sentido y doce autos iniciales de formas simples**. Usa una reserva conservadora de un vehículo a la vez dentro del cruce. Todavía no incluye modelos de la flota, texturas, edificios, peatones, paradas de bus, cambios de carril, conducción manual ni la ciudad completa.
+## Controles
 
-## Comprobar la lógica
+Botón derecho: orbitar. Rueda: zoom. Inicio: centrar el cruce observado. Espacio: pausa. F1: alternar el panel. Esc: cerrar plano/inspector o cancelar comparación. Las pestañas **Control**, **Demo**, **Vista** y **Datos** reúnen los controles de la aplicación.
 
-Con el ejecutable `godot` en `PATH`, desde la raíz:
+## Pruebas
+
+Con Godot en `PATH`:
 
 ```sh
+godot --headless --editor --import --path .
 godot --headless --path . --script res://tests/test_controller.gd
 godot --headless --path . --script res://tests/test_world.gd
-python tools/test_mcp.py
+godot --headless --path . --script res://tests/test_network.gd
+godot --headless --path . --script res://tests/test_demo.gd
+godot --headless --path . --script res://tests/test_fleet.gd
 ```
 
-Para probar además la conexión MCP con el motor real:
+El puente MCP y sus pruebas requieren Python 3.10 o posterior, sin paquetes adicionales:
 
 ```sh
 python tools/test_mcp.py --integration
 ```
 
-Si Godot no está en `PATH`, define `GODOT_PATH` con la ruta del ejecutable principal. En PowerShell, los comandos directos pueden usar `& $env:GODOT_PATH`.
+Si Godot no está en `PATH`, define `GODOT_PATH` con el ejecutable principal. En PowerShell puedes ejecutar los comandos directos con `& $env:GODOT_PATH`.
 
-La validación inicial incluye **14.400 estados comparados con el controlador JavaScript original**, 36 comprobaciones de semáforos y 20 pruebas de tráfico. En los escenarios de 240 s por modo no se detectaron solapamientos. Consulta [COMPROBACIONES.md](COMPROBACIONES.md) para el alcance y los límites.
+## Código
 
-## Estructura y conexión
-
-| Ruta | Función |
+| Archivo | Responsabilidad |
 | --- | --- |
-| `scripts/traffic_controller.gd` | Fases, modos, sensores y prioridad de semáforos. |
-| `scripts/traffic_world.gd` | Autos, colas, decisiones de cruce y tráfico. |
-| `scripts/traffic_math.gd` | Frenado, trayectorias y volúmenes orientados. |
-| `scripts/main.gd` | Vista 3D y controles de prueba. |
-| `tests/` | Pruebas GDScript y referencia reproducible del JavaScript. |
-| `tools/` | Puente MCP local opcional y simulaciones headless. |
+| `scripts/traffic_controller.gd` | Modos y fases de los semáforos; lógica determinista conservada. |
+| `scripts/traffic_world.gd` | Seguimiento, frenado, reserva y circulación dentro de cada cruce. |
+| `scripts/network_world.gd` | Nueve cruces, transferencias, escenarios, métricas y exportación. |
+| `scripts/demo_view.gd` | Interfaz, ciudad, cámaras, diagnóstico e inspección. |
+| `scripts/traffic_math.gd` | Trayectorias por distancia de arco y comprobaciones SAT. |
+| `scripts/fleet_catalog.gd` | Rutas, dimensiones y colores compartidos por vista y tráfico. |
+| `scripts/stl_fleet.gd` | Lectura y normalización de los STL originales. |
+| `tools/` | [Puente MCP opcional](CONEXION-MCP.md) y simulaciones headless. |
 
-El [puente MCP](CONEXION-MCP.md) usa Python estándar y transporte `stdio`. Puede consultar este proyecto, validar, ejecutar pruebas y devolver estados JSON. Sus simulaciones son procesos independientes; no controla una ventana del editor abierta. La configuración del cliente es opcional y se realiza por separado.
+Para añadir vehículos en el futuro, incorpora su STL binario y una entrada al catálogo. Comprueba dimensiones y orientación con las pruebas de flota antes de ampliar la circulación.
 
-Más detalles en [LEEME.md](LEEME.md).
+## Alcance
+
+Un carril por sentido y reserva exclusiva de un vehículo por cruce. El tráfico es cinemático y usa SAT para impedir invasiones; no simula suspensión ni daños físicos. El plano PNG es una referencia consultable y no sustituye la calzada. Quedan fuera de esta demo la conducción manual, peatones, cambios de carril, paradas de bus y animación independiente de ruedas. Los modelos usan materiales sólidos, sin texturas UV nuevas.

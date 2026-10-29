@@ -21,10 +21,13 @@ PROJECT = Path(__file__).resolve().parent.parent
 PROTOCOLS = ("2025-03-26", "2024-11-05")
 MAX_MESSAGE_BYTES = 128 * 1024
 MAX_OUTPUT_BYTES = 20000
-TEST_SCRIPTS = ("res://tests/test_controller.gd", "res://tests/test_world.gd")
+TEST_SCRIPTS = ("res://tests/test_controller.gd", "res://tests/test_world.gd", "res://tests/test_network.gd", "res://tests/test_demo.gd", "res://tests/test_fleet.gd")
 TEST_COMPLETIONS = {
     TEST_SCRIPTS[0]: r"Controller: [1-9]\d* checks; 0 failures",
     TEST_SCRIPTS[1]: r"WORLD_TESTS [1-9]\d* passed, 0 failed",
+    TEST_SCRIPTS[2]: r"NETWORK_TESTS [1-9]\d* passed, 0 failed",
+    TEST_SCRIPTS[3]: r"DEMO_TESTS [1-9]\d* passed, 0 failed",
+    TEST_SCRIPTS[4]: r"FLEET_TESTS [1-9]\d* modelos y escena; 0 fallos",
 }
 
 
@@ -45,6 +48,7 @@ TOOLS = [
                 "mode": {"type": "string", "enum": ["fti", "adaptive", "fixed"], "default": "fti"},
                 "seconds": {"type": "number", "minimum": 0, "maximum": 120, "default": 30},
                 "sensor_enabled": {"type": "boolean", "default": True},
+                "network": {"type": "boolean", "default": False, "description": "Simula la red de nueve cruces en lugar del cruce unitario."},
             },
             "additionalProperties": False,
         },
@@ -95,6 +99,7 @@ def scan_output(streams, completion_pattern: str | None = None) -> dict:
     warnings: list[str] = []
     has_errors = False
     completion = None
+    snapshot = None
     for stream in streams:
         stream.seek(0)
         for raw_line in stream:
@@ -106,8 +111,14 @@ def scan_output(streams, completion_pattern: str | None = None) -> dict:
                 has_errors = True
             if completion_pattern and re.fullmatch(completion_pattern, line):
                 completion = line
+            if line.startswith("FTI_JSON:") and len(raw_line) < 2 * 1024 * 1024:
+                try:
+                    candidate = json.loads(line.removeprefix("FTI_JSON:"))
+                    if isinstance(candidate, dict): snapshot = candidate
+                except json.JSONDecodeError:
+                    snapshot = None
     return {"has_errors": has_errors, "environment_warning": warnings or None,
-            "completion_marker": completion}
+            "completion_marker": completion, "snapshot": snapshot}
 
 
 def run_godot(godot: Path | None, args: list[str], timeout: int = 60,
@@ -140,6 +151,8 @@ def run_godot(godot: Path | None, args: list[str], timeout: int = 60,
             result = {"ok": ok, "exit_code": process.returncode,
                       "stdout": output_excerpt(out), "stderr": output_excerpt(err),
                       "environment_warning": diagnostics["environment_warning"]}
+            if diagnostics["snapshot"] is not None:
+                result["snapshot"] = diagnostics["snapshot"]
             if completion_pattern is not None:
                 result["completion_marker"] = diagnostics["completion_marker"]
                 if not completed:
@@ -155,12 +168,12 @@ def call_tool(name: str, arguments: dict, godot: Path | None) -> dict:
     known = {tool["name"] for tool in TOOLS}
     if name not in known:
         raise InvalidParams("Herramienta desconocida: " + name)
-    allowed = {"mode", "seconds", "sensor_enabled"} if name == "fti_simulate" else set()
+    allowed = {"mode", "seconds", "sensor_enabled", "network"} if name == "fti_simulate" else set()
     if set(arguments) - allowed:
         raise InvalidParams("Argumentos desconocidos: " + ", ".join(sorted(set(arguments) - allowed)))
     if name == "fti_project_info":
         return {"ok": True, "project": str(PROJECT), "godot": str(godot) if godot else None,
-                "transport": "stdio", "live_editor_control": False, "models_included": False,
+                "transport": "stdio", "live_editor_control": False, "models_included": True,
                 "scope": "Este proyecto y trabajos headless independientes",
                 "tools": [item["name"] for item in TOOLS]}
     if name == "fti_validate":
@@ -169,29 +182,29 @@ def call_tool(name: str, arguments: dict, godot: Path | None) -> dict:
         results = []
         for script in TEST_SCRIPTS:
             result = run_godot(godot, ["--script", script],
-                               completion_pattern=TEST_COMPLETIONS[script])
+                               timeout=180, completion_pattern=TEST_COMPLETIONS[script])
             results.append({"script": script, **result})
         return {"ok": all(item["ok"] for item in results), "tests": results}
     mode = arguments.get("mode", "fti")
     seconds = arguments.get("seconds", 30)
     sensors = arguments.get("sensor_enabled", True)
+    network = arguments.get("network", False)
     if mode not in ("fti", "adaptive", "fixed"):
         raise InvalidParams("mode debe ser fti, adaptive o fixed")
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 0 <= seconds <= 120:
         raise InvalidParams("seconds debe ser un número finito entre 0 y 120")
     if not isinstance(sensors, bool):
         raise InvalidParams("sensor_enabled debe ser booleano")
+    if not isinstance(network, bool):
+        raise InvalidParams("network debe ser booleano")
     result = run_godot(godot, ["--script", "res://tools/simulate.gd", "--",
                                "mode=" + mode, "seconds=" + str(seconds),
-                               "sensor_enabled=" + str(sensors).lower()])
+                               "sensor_enabled=" + str(sensors).lower(),
+                               "network=" + str(network).lower()], timeout=180)
     if not result["ok"]:
         return result
-    markers = [line.removeprefix("FTI_JSON:") for line in result.get("stdout", "").splitlines() if line.startswith("FTI_JSON:")]
-    if not markers:
-        return {**result, "ok": False, "error": "Godot no devolvió el marcador FTI_JSON."}
-    try:
-        snapshot = json.loads(markers[-1])
-    except json.JSONDecodeError:
+    snapshot = result.get("snapshot")
+    if not isinstance(snapshot, dict):
         return {**result, "ok": False, "error": "Estado JSON de Godot no válido."}
     return {"ok": True, "independent_headless_run": True, "snapshot": snapshot}
 

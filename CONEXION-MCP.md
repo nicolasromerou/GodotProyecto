@@ -64,3 +64,15 @@ La línea `FTI_JSON:` contiene el estado. El puente separa los registros de Godo
 - [MCP: herramientas](https://modelcontextprotocol.io/specification/2025-03-26/server/tools).
 
 El puente implementa el subconjunto de herramientas MCP `2025-03-26` y `2024-11-05`; no implementa recursos, prompts, acceso remoto ni un panel de edición de escenas.
+
+## Red de nueve cruces
+
+`fti_run_tests` incluye las suites de controlador, tráfico unitario, red, interfaz y flota. La ejecución completa puede tardar varios minutos.
+
+`fti_simulate` acepta `network: true` para ejecutar la red completa:
+
+```json
+{"mode":"adaptive","seconds":30,"sensor_enabled":true,"network":true}
+```
+
+Si omites `network`, se conserva la simulación del cruce unitario. Las instantáneas JSON se leen completas antes de recortar los registros.

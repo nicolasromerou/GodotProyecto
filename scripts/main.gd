@@ -1,6 +1,7 @@
 extends Node3D
 ## La vista observa el núcleo. No toma decisiones de tráfico ni modifica sus poses.
 const TrafficWorld = preload("res://scripts/traffic_world.gd")
+const FleetVisual = preload("res://scripts/stl_fleet.gd")
 
 var world = TrafficWorld.new()
 var car_nodes: Dictionary = {}
@@ -19,6 +20,7 @@ var camera_yaw: float = 0.62
 var camera_elevation: float = 0.88
 var camera_distance: float = 153.0
 var hud_clock: float = 0.0
+var reference_panel: PanelContainer
 
 func _ready() -> void:
 	_build_environment()
@@ -53,7 +55,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			camera_distance = minf(265.0, camera_distance / 0.9)
 		_update_camera()
 	elif event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_SPACE:
+		if event.keycode == KEY_ESCAPE and reference_panel.visible:
+			reference_panel.hide()
+		elif event.keycode == KEY_SPACE:
 			_toggle_pause()
 		elif event.keycode == KEY_HOME:
 			camera_yaw = 0.62
@@ -175,13 +179,7 @@ func _build_signals() -> void:
 		lamps[approach] = lights
 
 func _car_node(id: int) -> Node3D:
-	var root := Node3D.new()
-	root.name = "Vehicle_%d" % id
-	var colors: Array[Color] = [Color("efc85b"), Color("65c2d2"), Color("d47d74"), Color("acb8d1"), Color("a7c18a")]
-	_box(root, Vector3(2.0, 0.80, 4.8), Vector3(0, 0.70, 0), _material(colors[id % colors.size()]))
-	_box(root, Vector3(1.65, 0.60, 2.1), Vector3(0, 1.37, -0.15), _material(Color("344f63")))
-	_box(root, Vector3(1.55, 0.18, 0.06), Vector3(0, 0.85, 2.42), _material(Color("fff0b6"), 1.0))
-	_box(root, Vector3(1.55, 0.16, 0.06), Vector3(0, 0.85, -2.42), _material(Color("d84c49"), 0.7))
+	var root: Node3D = FleetVisual.create_vehicle(id)
 	add_child(root)
 	return root
 
@@ -239,7 +237,11 @@ func _build_hud() -> void:
 	column.add_theme_constant_override("separation", 12)
 	panel.add_child(column)
 	column.add_child(_label("FTI  /  LABORATORIO EN GODOT", 25, Color("e8f5f4")))
-	column.add_child(_label("Semáforos y tráfico autónomo · un cruce de validación · vehículos de prueba", 15, Color("9fbcc8")))
+	column.add_child(_label("Semáforos y tráfico autónomo · flota STL: SUV, pickup y bus", 15, Color("9fbcc8")))
+	var reference_button := Button.new()
+	reference_button.text = "Ver plano del cruce"
+	reference_button.pressed.connect(func(): reference_panel.show())
+	column.add_child(reference_button)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	column.add_child(row)
@@ -287,6 +289,27 @@ func _build_hud() -> void:
 	footer.offset_right = -24
 	footer.add_theme_color_override("font_color", Color("d0e4e9"))
 	layer.add_child(footer)
+	_build_reference_panel(layer)
+
+func _build_reference_panel(layer: CanvasLayer) -> void:
+	reference_panel = PanelContainer.new()
+	reference_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	reference_panel.add_theme_stylebox_override("panel", _panel_style(Color("101c2a")))
+	layer.add_child(reference_panel)
+	var layout := VBoxContainer.new()
+	reference_panel.add_child(layout)
+	var close_button := Button.new()
+	close_button.text = "Volver a la simulación · Esc"
+	close_button.pressed.connect(func(): reference_panel.hide())
+	layout.add_child(close_button)
+	layout.add_child(_label("Plano de referencia · su geometría aún no sustituye los carriles de la simulación", 18, Color.WHITE))
+	var picture := TextureRect.new()
+	picture.texture = load("res://calle/Cruce_Calles.png")
+	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	layout.add_child(picture)
+	reference_panel.hide()
 
 func _toggle_pause() -> void:
 	paused = not paused
