@@ -1,0 +1,4 @@
+modo,segundos,vehiculos,cruces,espera_acumulada_media_s,velocidad_final_media_kmh,transferencias
+fti,120,36,128,44.484722222221,19.839209121955,120
+adaptive,120,36,137,37.7254629629621,24.1535298622977,129
+fixed,120,36,127,44.5754629629617,19.3323470284663,119
