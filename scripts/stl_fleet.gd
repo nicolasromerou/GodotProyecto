@@ -62,5 +62,7 @@ static func create_vehicle(id: int) -> Node3D:
 	var instance := MeshInstance3D.new()
 	instance.mesh = mesh_for(Catalog.for_id(id))
 	instance.position.y = 0.05
+	# The STL front points opposite to the +Z-forward traffic poses.
+	instance.rotation.y = PI
 	root.add_child(instance)
 	return root

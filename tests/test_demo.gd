@@ -50,7 +50,18 @@ func _run() -> void:
 	scene._choose_scenario(3)
 	check(scene.car_nodes.size() == 0, "Sin demanda elimina los vehículos de la escena")
 	scene._choose_scenario(0)
+	scene._select_cross(4)
+	for input in scene.demand_inputs: input.value = 0
+	scene.demand_inputs[0].value = 2
+	scene.demand_inputs[2].value = 1
+	scene._apply_vehicle_demand()
+	check(scene.world.vehicles.size() == 39 and scene.car_nodes.size() == 39, "La interfaz aplica cantidades por calle y sincroniza la flota")
+	check(scene.world.mode == "adaptive" and scene.coordinator_active, "Aplicar demanda activa el modo adaptativo y el coordinador Python")
+	scene._request_pedestrian()
+	check(scene.world.controller.pedestrian_pending, "La interfaz solicita una fase peatonal protegida")
 	for _step in range(125): scene.world.tick(1.0 / 60.0)
+	scene._update_hud()
+	check(scene.world.controller.stage == "WALK" and scene.status_label.text.begins_with("CRUCE PEATONAL"), "El HUD representa la fase peatonal protegida")
 	var csv_path := "res://.godot/demo-test.csv"
 	var config_path := "res://.godot/demo-test.json"
 	scene.export_kind = "csv"
@@ -73,6 +84,7 @@ func _run() -> void:
 	check(JSON.stringify(scene.world.snapshot()) == before_comparison and scene.paused, "Cancelar ensayo también conserva la simulación")
 	scene.reference_panel.show()
 	check(scene.reference_panel.visible, "Plano de referencia disponible")
+	scene._stop_python_coordinator("Prueba finalizada.")
 	scene.queue_free()
 	await process_frame
 	print("DEMO_TESTS ", passed, " passed, ", failed, " failed")

@@ -1,6 +1,6 @@
 extends RefCounted
 ## Núcleo sin nodos visuales: un cruce, un carril por sentido y autos de prueba.
-## La reserva exclusiva es deliberadamente conservadora para esta primera migración.
+## Los movimientos rectos compatibles comparten el verde; los giros reservan el cruce.
 const Controller = preload("res://scripts/traffic_controller.gd")
 const Math = preload("res://scripts/traffic_math.gd")
 const Fleet = preload("res://scripts/fleet_catalog.gd")
@@ -81,7 +81,7 @@ func create_vehicle(heading: int, distance: float, planned_turn: int = 0) -> Dic
 	vehicle.length = spec.length
 	vehicle.width = spec.width
 	vehicle.model = spec.key
-	for other: Dictionary in vehicles:
+	for other: Dictionary in vehicles + external_vehicles:
 		if Math.overlap(vehicle, other, 2.0):
 			return {}
 	vehicles.append(vehicle)
@@ -205,9 +205,11 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		if not bool(vehicle.committed):
 			if stop_for_light and reservation == int(vehicle.id):
 				reservation = -1
-			if not stop_for_light and reservation == -1 and front_gap < 12.0 and not is_occupied() and not _exit_blocked(vehicle):
+			var turning_route: bool = int(vehicle.planned_turn) != 0
+			if turning_route and not stop_for_light and reservation == -1 and front_gap < 12.0 and not is_occupied() and not _exit_blocked(vehicle):
 				reservation = int(vehicle.id)
-			var blocked: bool = stop_for_light or reservation != int(vehicle.id) or _exit_blocked(vehicle)
+			var reservation_blocked: bool = reservation != int(vehicle.id) if turning_route else reservation != -1
+			var blocked: bool = stop_for_light or reservation_blocked or _exit_blocked(vehicle)
 			if blocked and front_gap < gap:
 				gap = front_gap
 				leader_speed = 0.0
@@ -221,7 +223,7 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		candidate.x = pose.x
 		candidate.z = pose.z
 		candidate.yaw = pose.yaw
-	elif not vehicle.cleared and distance >= turn_entry and distance - float(motion.distance) < turn_entry and reservation == int(vehicle.id):
+	elif not vehicle.cleared and distance >= turn_entry and distance - float(motion.distance) < turn_entry and _has_entry_reservation(vehicle):
 		candidate.turning = true
 		candidate.turn_path = road_profile.turn_path(int(vehicle.heading), int(vehicle.planned_turn)) if road_profile != null else Math.make_turn_path(int(vehicle.heading), int(vehicle.planned_turn), LANE_OFFSET, turn_entry)
 		candidate.turn_distance = maxf(0.0, float(motion.distance) - (distance - turn_entry))
@@ -237,7 +239,7 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		candidate.x = pose.x
 		candidate.z = pose.z
 		candidate.yaw = pose.yaw
-		if not bool(vehicle.cleared) and reservation == int(vehicle.id) and distance - float(motion.distance) < stop_line + float(vehicle.length) * 0.5:
+		if not bool(vehicle.cleared) and _has_entry_reservation(vehicle) and distance - float(motion.distance) < stop_line + float(vehicle.length) * 0.5:
 			candidate.committed = true
 	# No sustituye el seguimiento: última barrera SAT contra un avance que invada otro auto.
 	for other: Dictionary in vehicles + external_vehicles:
@@ -263,6 +265,11 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		vehicle.steering_angle = 0.0
 		statistics.crossings += 1
 	statistics.max_step = maxf(float(statistics.max_step), previous.distance_to(Vector2(float(vehicle.x), float(vehicle.z))))
+
+func _has_entry_reservation(vehicle: Dictionary) -> bool:
+	if int(vehicle.planned_turn) != 0:
+		return reservation == int(vehicle.id)
+	return reservation == -1
 
 func snapshot() -> Dictionary:
 	var cars: Array = []

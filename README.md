@@ -6,7 +6,7 @@ Demo 3D en **Godot 4.7.2**, con nueve cruces conectados y los modelos STL de SUV
 
 ## Ejecutar
 
-Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. Para ejecutar la demo no necesitas Python, Node ni conexión a Internet.
+Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. La demo base no necesita Python, Node ni conexión a Internet; el coordinador opcional requiere Python 3.
 
 ![Demo en Godot](docs/demo.png)
 
@@ -17,6 +17,9 @@ Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. 
 - **Sensores por acceso**, colas, espera, profundidad ajustable de 25–85 m, fallos por cruce o globales y respaldo fijo tras 5 s sin lecturas.
 - **V2I temporal**, con transiciones seguras y cancelación automática a los 20 s. La solicitud de prueba se activa desde la pestaña Demo.
 - **Escenarios reproducibles:** normal (36 vehículos), hora punta por eje (54), ausencia de demanda e incidente con recuperación a los 12 s.
+- **Demanda configurable por calle:** introduce cuántos vehículos llegan desde Norte, Este, Sur y Oeste. Aplicar la demanda agrega los que caben y activa Python automáticamente.
+- **Flujo paralelo:** sentidos opuestos compatibles comparten el verde adaptativo y atraviesan el cruce a la vez; los giros conservan reserva exclusiva para evitar colisiones. Los accesos incompatibles nunca reciben verde simultáneo.
+- **Coordinador local en Python:** cada 2,5 s analiza colas, esperas y congestión aguas abajo de los nueve cruces, y pide prioridades adaptativas sin saltarse las transiciones seguras. Requiere Python 3; no usa Internet ni controla hardware.
 - **Comparación de algoritmos:** ejecuta los tres modos durante 120 s con la misma flota y escenario en una red independiente. Conserva la demo visible y permite cancelar.
 - **Telemetría y exportación:** historial de demanda, registro de eventos, métricas CSV, configuración JSON y CSV de comparación.
 - **Calle reconstruida desde el PNG:** avenida norte dividida, mediana arbolada, bordillos curvos, cebras y doble amarilla, con rutas y sensores alineados.
@@ -52,6 +55,7 @@ El puente MCP y sus pruebas requieren Python 3.10 o posterior, sin paquetes adic
 
 ```sh
 python tools/test_mcp.py --integration
+python -m unittest tests.test_traffic_coordinator
 ```
 
 Si Godot no está en `PATH`, define `GODOT_PATH` con el ejecutable principal. En PowerShell puedes ejecutar los comandos directos con `& $env:GODOT_PATH`.
@@ -60,10 +64,11 @@ Si Godot no está en `PATH`, define `GODOT_PATH` con el ejecutable principal. En
 
 | Archivo | Responsabilidad |
 | --- | --- |
-| `scripts/traffic_controller.gd` | Modos y fases de los semáforos; lógica determinista conservada. |
+| `scripts/traffic_controller.gd` | Modos, fases vehiculares y cruces peatonales protegidos. |
 | `scripts/traffic_world.gd` | Seguimiento, frenado, reserva y circulación dentro de cada cruce. |
-| `scripts/network_world.gd` | Nueve cruces, transferencias, escenarios, métricas y exportación. |
-| `scripts/demo_view.gd` | Interfaz, ciudad, cámaras, diagnóstico e inspección. |
+| `scripts/network_world.gd` | Nueve cruces, demanda manual, transferencias, métricas y exportación. |
+| `scripts/demo_view.gd` | Interfaz, ciudad, coordinación local Python, cámaras y diagnóstico. |
+| `tools/traffic_coordinator.py` | Prioridades por demanda, espera y colas aguas abajo; biblioteca estándar de Python. |
 | `scripts/traffic_math.gd` | Trayectorias por distancia de arco y comprobaciones SAT. |
 | `scripts/fleet_catalog.gd` | Rutas, dimensiones y colores compartidos por vista y tráfico. |
 | `scripts/stl_fleet.gd` | Lectura y normalización de los STL originales. |
@@ -73,4 +78,4 @@ Para añadir vehículos en el futuro, incorpora su STL binario y una entrada al 
 
 ## Alcance
 
-Un carril por sentido y reserva exclusiva de un vehículo por cruce. El tráfico es cinemático y usa SAT para impedir invasiones; no simula suspensión ni daños físicos. El trazado del cruce central se reconstruyó en 3D a partir de `calle/Cruce_Calles.png`, con avenida norte dividida, mediana y esquinas curvas. Quedan fuera de esta demo la conducción manual, peatones, cambios de carril, paradas de bus y animación independiente de ruedas. Los modelos usan materiales sólidos, sin texturas UV nuevas.
+Un carril por sentido; los movimientos rectos de sentidos opuestos pueden compartir el verde, mientras los giros reservan el cruce. El tráfico es cinemático y usa SAT para impedir invasiones; no simula suspensión ni daños físicos. La fase peatonal protege el cruce durante solicitudes, pero no anima peatones ni cuenta personas. El coordinador es una heurística local de demostración, no una garantía de que nunca habrá congestión; no se conecta a infraestructura real. El trazado del cruce central se reconstruyó en 3D a partir de `calle/Cruce_Calles.png`, con avenida norte dividida, mediana y esquinas curvas. Quedan fuera la conducción manual, cambios de carril, paradas de bus y animación independiente de ruedas. Los modelos usan materiales sólidos, sin texturas UV nuevas.

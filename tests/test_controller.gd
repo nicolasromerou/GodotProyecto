@@ -91,6 +91,21 @@ func _initialize() -> void:
 	check(c.stage == "YELLOW", "V2I does not skip yellow")
 	run_for(c, 4.0, [2, 2, 0, 0])
 	check(c.active == ["E", "W"], "V2I selects other axis after clearance")
+	c = Controller.new()
+	run_for(c, 1.1, [1, 0, 0, 0])
+	check(c.stage == "GREEN" and c.request_pedestrian(), "Solicitud peatonal se encola durante el verde")
+	run_for(c, 5.0, [1, 0, 0, 0])
+	check(c.stage == "YELLOW" and c.pedestrian_pending, "Solicitud peatonal no interrumpe el verde antes del amarillo")
+	run_for(c, 2.5, [1, 0, 0, 0])
+	check(c.stage == "ALL_RED" and c.pedestrian_pending, "Fase peatonal espera amarillo y despeje")
+	run_for(c, 0.6, [1, 0, 0, 0])
+	check(c.stage == "WALK" and not c.pedestrian_pending and c.light("N") == "RED", "Fase peatonal protegida mantiene todos los accesos rojos")
+	run_for(c, 6.1, [1, 0, 0, 0])
+	check(c.stage == "ALL_RED", "Fase peatonal termina con intervalo de despeje")
+	c = Controller.new()
+	check(c.request_pedestrian(), "Solicitud peatonal con cruce ocupado queda pendiente")
+	run_for(c, 3.0, [0, 0, 0, 0], true)
+	check(c.stage == "ALL_RED" and c.pedestrian_pending, "Cruce ocupado bloquea la fase peatonal")
 	check(Controller.detect_approach(-3, -35, 0, 0, 0) == 0, "Sensor north")
 	check(Controller.detect_approach(35, -3, 3, 0, 0) == 1, "Sensor east")
 	check(Controller.detect_approach(3, 35, 2, 0, 0) == 2, "Sensor south")
@@ -120,7 +135,7 @@ func _test_long_run() -> void:
 			c.step(1.0 / 30.0, i % 400 < 10)
 			var ns: bool = c.light("N") == "GREEN" or c.light("S") == "GREEN"
 			var ew: bool = c.light("E") == "GREEN" or c.light("W") == "GREEN"
-			safe = safe and not (ns and ew) and ["GREEN", "YELLOW", "ALL_RED"].has(c.stage)
+			safe = safe and not (ns and ew) and ["GREEN", "YELLOW", "ALL_RED", "WALK"].has(c.stage)
 			if c.running_mode == "fti":
 				safe = safe and c.active.size() <= 1
 		check(safe, "Long-run phase exclusion in " + selected_mode)

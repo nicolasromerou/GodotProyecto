@@ -16,6 +16,7 @@ var top_panel: PanelContainer
 var interface_layer: CanvasLayer
 var inspector_side_was_visible: bool = true
 var scenario_select: OptionButton
+var demand_inputs: Array[SpinBox] = []
 var sensor_labels: Array[Label] = []
 var phase_bar: ProgressBar
 var event_label: RichTextLabel
@@ -48,6 +49,15 @@ var comparison_label: Label
 var comparison_panel: PanelContainer
 var comparison_status: Label
 var comparison_progress: ProgressBar
+var pedestrian_status: Label
+var coordinator_button: Button
+var coordinator_status: Label
+var coordinator_active: bool = false
+var coordinator_request_in_flight: bool = false
+var coordinator_generation: int = 0
+var coordinator_previous_mode: String = ""
+var coordinator_next_request_time: float = 0.0
+var coordinator_thread: Thread
 var scenario_names = ["Normal · 36 vehículos", "Hora punta Norte–Sur · 54", "Hora punta Este–Oeste · 54", "Sin demanda · todo rojo"]
 
 func _ready() -> void:
@@ -96,6 +106,7 @@ func _physics_process(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	hud_clock += delta
+	_update_python_coordinator()
 	if hud_clock >= 0.15:
 		hud_clock = 0.0
 		_update_hud()
@@ -109,6 +120,10 @@ func _process(delta: float) -> void:
 				if int(car.id) == follow_id: target = Vector3(car.x, 0, car.z)
 		camera_target = camera_target.lerp(target, 1.0 - exp(-delta * 7.0))
 		_update_camera()
+
+func _exit_tree() -> void:
+	if coordinator_thread != null and coordinator_thread.is_started():
+		coordinator_thread.wait_to_finish()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if comparing:
@@ -398,7 +413,33 @@ func _build_hud() -> void:
 	_button(scenarios, "Prioridad Este–Oeste · 20 s", func(): world.request_priority("EW"))
 	_button(scenarios, "Cancelar prioridad", func(): world.request_priority(""))
 	_button(scenarios, "Incidente · detención de 12 s", func(): world.incident())
-	_text(scenarios, "FTI: 5 s de verde + 2 s amarillo. Fijo: 11 + 2,5 s. Todos los modos esperan al menos 1 s de despeje y que el cruce esté libre.", 14)
+	_text(scenarios, "DEMANDA POR CALLE · CRUCE OBSERVADO", 13)
+	_text(scenarios, "Indica cuántos vehículos llegan desde cada acceso. Al aplicarlo, Python activa la coordinación adaptativa. Los sentidos compatibles avanzan juntos; los giros conservan prioridad segura.", 13)
+	var demand_grid := GridContainer.new()
+	demand_grid.columns = 2
+	demand_grid.add_theme_constant_override("h_separation", 14)
+	demand_grid.add_theme_constant_override("v_separation", 6)
+	scenarios.add_child(demand_grid)
+	for approach in ["Norte", "Este", "Sur", "Oeste"]:
+		demand_grid.add_child(_label(approach, 14, Color("d3e2e8")))
+		var amount := SpinBox.new()
+		amount.min_value = 0
+		amount.max_value = 30
+		amount.step = 1
+		amount.value = 0
+		amount.custom_minimum_size.x = 100
+		amount.allow_greater = false
+		amount.allow_lesser = false
+		demand_inputs.append(amount)
+		demand_grid.add_child(amount)
+	_button(scenarios, "Aplicar demanda y activar Python", _apply_vehicle_demand)
+	_button(scenarios, "Solicitar cruce peatonal seguro", _request_pedestrian)
+	pedestrian_status = _text(scenarios, "Sin solicitudes peatonales pendientes.", 13)
+	_text(scenarios, "El cruce peatonal recibe una fase exclusiva de 6 s, solo después de amarillo, despeje y comprobación de cruce libre.", 13)
+	_text(scenarios, "COORDINACIÓN LOCAL CON PYTHON", 13)
+	coordinator_button = _button(scenarios, "Iniciar coordinador Python", _toggle_python_coordinator)
+	coordinator_status = _text(scenarios, "Actualiza semáforos cada 2,5 s simulados. Los verdes son compartidos por sentidos opuestos compatibles; los cruces conflictivos alternan.", 13)
+	_text(scenarios, "Solo controla esta simulación local. No se conecta a semáforos físicos.", 12)
 	var fleet: VBoxContainer = _section(tabs, "Vista")
 	_text(fleet, "CÁMARA Y FLOTA", 13)
 	var cameras := OptionButton.new()
@@ -485,20 +526,25 @@ func _update_hud() -> void:
 	if status_label == null: return
 	var c = world.controller
 	var phase: String = "TODO ROJO" if c.stage == "ALL_RED" else "VERDE" if c.stage == "GREEN" else "AMARILLO"
+	if c.stage == "WALK": phase = "CRUCE PEATONAL"
 	status_label.text = phase + " · " + "/".join(c.active)
 	detail_label.text = c.reason
+	if c.pedestrian_pending:
+		detail_label.text += "\nSolicitud peatonal pendiente"
 	if c.priority != "":
 		detail_label.text += "\nV2I %s · %.0f s restantes" % [c.priority, maxf(0, world.priority_until[world.selected] - world.simulation_time)]
-	var duration: float = c.green_duration() if c.stage == "GREEN" else c.yellow_duration() if c.stage == "YELLOW" else c.clearance
+	var duration: float = c.green_duration() if c.stage == "GREEN" else c.yellow_duration() if c.stage == "YELLOW" else c.pedestrian_duration() if c.stage == "WALK" else c.clearance
 	phase_bar.value = minf(100, c.elapsed / duration * 100)
 	var colors = {"RED": Color("ec7780"), "ALL_RED": Color("ec7780"), "YELLOW": Color("e9c768"), "GREEN": Color("70dfb6")}
-	status_label.add_theme_color_override("font_color", colors[c.stage])
+	status_label.add_theme_color_override("font_color", Color("78d7ef") if c.stage == "WALK" else colors[c.stage])
 	for index in range(4):
 		var approach: String = ["N", "E", "S", "W"][index]
 		sensor_labels[index].text = "C%d · %s   %d veh · %d cola · %.0f s" % [index + 1, approach, c.counts[index], c.queues[index], c.wait[index]]
 		sensor_labels[index].add_theme_color_override("font_color", colors[c.light(approach)])
 	sensor_toggle.set_pressed_no_signal(world.junctions[world.selected].sensor_enabled)
 	queues_label.text = "RESPALDO FIJO" if c.fallback else "Sensores en línea · %.0f m" % world.detector_depth if world.junctions[world.selected].sensor_enabled else "Sin señal · %.1f / 5 s" % c.sensor_age
+	if pedestrian_status != null:
+		pedestrian_status.text = "Fase peatonal activa." if c.stage == "WALK" else "Solicitud peatonal pendiente." if c.pedestrian_pending else "Sin solicitudes peatonales pendientes."
 	chart.samples = world.history[world.selected]
 	chart.queue_redraw()
 	var summary: Dictionary = world.metrics()
@@ -515,6 +561,158 @@ func _update_hud() -> void:
 				var color: Color = [Color("ff4b53"), Color("ffd15c"), Color("5cf0a4")][index]
 				bulb.material_override = _material(color if index == slot else color * 0.12, 1.5 if index == slot else 0.0)
 				bulb.set_meta("lit", int(index == slot))
+
+func _apply_vehicle_demand() -> void:
+	var quantities: Array = []
+	for input in demand_inputs:
+		quantities.append(roundi(input.value))
+	var demand: Dictionary = world.add_demand(world.selected, quantities)
+	if demand.is_empty():
+		notice_label.text = "No se pudo aplicar la demanda. Usa cantidades enteras entre 0 y 30."
+		return
+	var added: Array = demand.added
+	var total_added: int = 0
+	var total_requested: int = 0
+	for index in range(4):
+		total_added += int(added[index])
+		total_requested += int(demand.requested[index])
+	if total_added == 0:
+		notice_label.text = "No se agregaron vehículos: revisa la demanda o el espacio disponible."
+		return
+	_sync_cars()
+	if not coordinator_active:
+		_toggle_python_coordinator()
+	else:
+		world.set_mode("adaptive")
+		mode_select.select(1)
+	notice_label.text = "Se agregaron %d de %d vehículos a I-%d; Python coordina las fases." % [total_added, total_requested, world.selected + 1]
+	_update_hud()
+
+func _request_pedestrian() -> void:
+	if not world.request_pedestrian(world.selected):
+		notice_label.text = "Ya hay una solicitud peatonal pendiente o una fase activa en este cruce."
+		return
+	notice_label.text = "Solicitud peatonal registrada en I-%d; se respetará el despeje seguro." % (world.selected + 1)
+	_update_hud()
+
+func _toggle_python_coordinator() -> void:
+	if coordinator_active:
+		_stop_python_coordinator("Coordinador Python detenido.")
+		return
+	coordinator_generation += 1
+	coordinator_active = true
+	coordinator_previous_mode = world.mode
+	world.set_mode("adaptive")
+	mode_select.select(1)
+	mode_select.disabled = true
+	coordinator_next_request_time = world.simulation_time
+	coordinator_button.text = "Detener coordinador Python"
+	coordinator_status.text = "Iniciando análisis de demanda..."
+	_update_python_coordinator()
+
+func _stop_python_coordinator(message: String) -> void:
+	coordinator_generation += 1
+	coordinator_active = false
+	for index in range(world.junctions.size()):
+		world.junctions[index].controller.priority = ""
+		world.priority_until[index] = 0.0
+	if not coordinator_previous_mode.is_empty():
+		world.set_mode(coordinator_previous_mode)
+		mode_select.select(["fti", "adaptive", "fixed"].find(coordinator_previous_mode))
+		coordinator_previous_mode = ""
+	mode_select.disabled = false
+	if coordinator_button != null:
+		coordinator_button.text = "Iniciar coordinador Python"
+	if coordinator_status != null:
+		coordinator_status.text = message
+
+func _update_python_coordinator() -> void:
+	if not coordinator_active or coordinator_request_in_flight or world.simulation_time < coordinator_next_request_time:
+		return
+	coordinator_next_request_time = world.simulation_time + 2.5
+	coordinator_request_in_flight = true
+	coordinator_thread = Thread.new()
+	var error: Error = coordinator_thread.start(_run_python_coordinator.bind(_coordinator_payload(), coordinator_generation))
+	if error != OK:
+		coordinator_request_in_flight = false
+		coordinator_thread = null
+		_stop_python_coordinator("No se pudo iniciar el trabajador Python (%s)." % str(error))
+
+func _run_python_coordinator(payload: String, generation: int) -> void:
+	var output: Array = []
+	var executable: String = OS.get_environment("PYTHON")
+	if executable.is_empty():
+		executable = "python" if OS.get_name() == "Windows" else "python3"
+	var script: String = ProjectSettings.globalize_path("res://tools/traffic_coordinator.py")
+	var exit_code: int = OS.execute(executable, [script, "--input-json", payload], output, true)
+	var response: String = "\n".join(PackedStringArray(output))
+	call_deferred("_finish_python_coordinator", generation, exit_code, response)
+
+func _finish_python_coordinator(generation: int, exit_code: int, response: String) -> void:
+	if coordinator_thread != null and coordinator_thread.is_started():
+		coordinator_thread.wait_to_finish()
+	coordinator_thread = null
+	coordinator_request_in_flight = false
+	if generation != coordinator_generation or not coordinator_active:
+		return
+	if exit_code != 0:
+		_stop_python_coordinator("Python no pudo calcular prioridades (código %d): %s" % [exit_code, response.strip_edges()])
+		return
+	var result: Variant = JSON.parse_string(response)
+	if not result is Dictionary or not result.get("decisions") is Array or result.decisions.size() != 9:
+		_stop_python_coordinator("Python devolvió un plan de tráfico inválido.")
+		return
+	var priorities: Array[String] = ["", "", "", "", "", "", "", "", ""]
+	var seen: Dictionary = {}
+	for decision in result.decisions:
+		if not decision is Dictionary:
+			_stop_python_coordinator("Python devolvió una decisión inválida.")
+			return
+		var id: Variant = decision.get("id")
+		var priority: Variant = decision.get("priority")
+		if typeof(id) != TYPE_INT or int(id) < 1 or int(id) > 9 or seen.has(int(id)) or priority not in ["", "NS", "EW"]:
+			_stop_python_coordinator("Python devolvió una prioridad fuera de rango.")
+			return
+		seen[int(id)] = true
+		priorities[int(id) - 1] = priority
+	if seen.size() != 9:
+		_stop_python_coordinator("Python no incluyó los nueve cruces.")
+		return
+	for index in range(9):
+		var controller = world.junctions[index].controller
+		var priority: String = priorities[index]
+		if controller.priority != priority:
+			controller.priority = priority
+			world.log_event("I-%d · Coordinador Python: %s" % [index + 1, priority if priority != "" else "sin prioridad"])
+		world.priority_until[index] = world.simulation_time + 5.0 if priority != "" else 0.0
+	coordinator_status.text = "Python activo · demanda y congestión revisadas en los 9 cruces."
+
+func _coordinator_payload() -> String:
+	var nodes: Array = []
+	for index in range(9):
+		var controller = world.junctions[index].controller
+		var downstream: Array = []
+		var row: int = int(index / 3)
+		var column: int = index % 3
+		var targets: Array = [
+			((row + 1) % 3) * 3 + column,
+			row * 3 + posmod(column - 1, 3),
+			posmod(row - 1, 3) * 3 + column,
+			row * 3 + posmod(column + 1, 3),
+		]
+		for approach_index in range(4):
+			downstream.append(world.junctions[targets[approach_index]].controller.queues[approach_index])
+		nodes.append({
+			"id": index + 1,
+			"counts": controller.counts,
+			"queues": controller.queues,
+			"wait": controller.wait,
+			"downstream_queues": downstream,
+			"sensors_online": world.junctions[index].sensor_enabled,
+			"fallback": controller.fallback,
+			"previous_axis": controller.last_axis,
+		})
+	return JSON.stringify({"junctions": nodes})
 
 func _ask_export(kind: String) -> void:
 	if kind == "comparison" and comparison_results.is_empty():

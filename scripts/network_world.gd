@@ -89,6 +89,48 @@ func request_priority(axis: String) -> bool:
 	log_event("I-%d · solicitud V2I %s (20 s)" % [selected + 1, axis])
 	return true
 
+func add_vehicle(junction_index: int, approach: String) -> Dictionary:
+	var approach_index: int = ["N", "E", "S", "W"].find(approach)
+	if junction_index < 0 or junction_index >= junctions.size() or approach_index < 0:
+		return {}
+	_refresh_external_vehicles()
+	var heading: int = [0, 3, 2, 1][approach_index]
+	var vehicle: Dictionary = {}
+	for distance: float in [95.0, 83.0, 71.0, 59.0, 47.0, 35.0, 23.0]:
+		vehicle = junctions[junction_index].create_vehicle(heading, distance)
+		if not vehicle.is_empty(): break
+	if vehicle.is_empty():
+		return {}
+	_refresh_vehicles()
+	log_event("I-%d · vehículo %d agregado por acceso %s" % [junction_index + 1, vehicle.id, approach])
+	return vehicle
+
+func add_demand(junction_index: int, quantities: Array) -> Dictionary:
+	if junction_index < 0 or junction_index >= junctions.size() or quantities.size() != 4:
+		return {}
+	var requested: Array[int] = []
+	for quantity in quantities:
+		if typeof(quantity) != TYPE_INT or int(quantity) < 0 or int(quantity) > 30:
+			return {}
+		requested.append(int(quantity))
+	var added: Array[int] = [0, 0, 0, 0]
+	var approaches := ["N", "E", "S", "W"]
+	for index in range(4):
+		for _vehicle_index in range(requested[index]):
+			if add_vehicle(junction_index, approaches[index]).is_empty():
+				break
+			added[index] += 1
+	log_event("I-%d · demanda solicitada N/E/S/O %s; agregada %s" % [junction_index + 1, str(requested), str(added)])
+	return {"requested": requested, "added": added}
+
+func request_pedestrian(junction_index: int) -> bool:
+	if junction_index < 0 or junction_index >= junctions.size():
+		return false
+	if not junctions[junction_index].controller.request_pedestrian():
+		return false
+	log_event("I-%d · solicitud peatonal; esperando despeje seguro" % (junction_index + 1))
+	return true
+
 func incident() -> bool:
 	for vehicle in junctions[selected].vehicles:
 		if not vehicle.cleared:
@@ -111,10 +153,7 @@ func _refresh_vehicles() -> void:
 			copy.junction = index
 			vehicles.append(copy)
 
-func tick(dt: float) -> void:
-	if dt <= 0.0 or dt > 0.1: return
-	simulation_time += dt
-	# Todas las consultas vecinas corresponden al inicio del mismo paso.
+func _refresh_external_vehicles() -> void:
 	_refresh_vehicles()
 	for index in range(9):
 		var junction = junctions[index]
@@ -127,6 +166,14 @@ func tick(dt: float) -> void:
 				local.x = delta.x
 				local.z = delta.y
 				junction.external_vehicles.append(local)
+
+func tick(dt: float) -> void:
+	if dt <= 0.0 or dt > 0.1: return
+	simulation_time += dt
+	# Todas las consultas vecinas corresponden al inicio del mismo paso.
+	_refresh_external_vehicles()
+	for index in range(9):
+		var junction = junctions[index]
 		if priority_until[index] > 0.0 and simulation_time >= priority_until[index]:
 			junction.controller.priority = ""
 			priority_until[index] = 0.0

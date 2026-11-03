@@ -53,6 +53,17 @@ func _run() -> void:
 	check(float(waiting.z) <= -(15.4 + 2.4) and float(waiting.speed) < 0.001 and not bool(waiting.committed), "Rojo mantiene el parachoques antes de la línea sin compromiso")
 	check(not world.is_occupied(), "Un auto detenido ante la línea no bloquea el despeje")
 	world.reset(false)
+	world.set_mode("adaptive")
+	var northbound: Dictionary = world.create_vehicle(0, 40.0, 0)
+	var southbound: Dictionary = world.create_vehicle(2, 40.0, 0)
+	var shared_green: bool = false
+	var no_conflict: bool = true
+	for _step in range(1800):
+		world.tick(1.0 / 60.0)
+		shared_green = shared_green or (bool(northbound.turning) and bool(southbound.turning))
+		no_conflict = no_conflict and no_overlaps(world)
+	check(shared_green and no_conflict and int(world.statistics.crossings) >= 2, "Dos flujos rectos opuestos comparten el verde adaptativo sin colisiones")
+	world.reset(false)
 	advance(world, 30.0)
 	check(world.controller.stage == "ALL_RED" and world.vehicles.is_empty(), "FTI sin vehículos permanece todo rojo")
 	for mode: String in ["fti", "adaptive", "fixed"]:

@@ -38,6 +38,9 @@ func _run() -> void:
 		var size: Vector3 = mesh.mesh.get_aabb().size
 		if absf(size.x - float(vehicle.width)) > 0.001 or absf(size.z - float(vehicle.length)) > 0.001:
 			failures += 1
+		if absf(wrapf(mesh.rotation.y - PI, -PI, PI)) > 0.0001:
+			push_error("La malla no apunta hacia el frente de su pose: " + str(vehicle.id))
+			failures += 1
 	scene.queue_free()
 	await process_frame
 	print("FLEET_TESTS 3 modelos y escena; ", failures, " fallos")

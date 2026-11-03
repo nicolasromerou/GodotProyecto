@@ -19,6 +19,7 @@ var last_axis: String = "EW"
 var wait: Array = [0.0, 0.0, 0.0, 0.0]
 ## Empty string means no priority. Otherwise use NS or EW.
 var priority: String = ""
+var pedestrian_pending: bool = false
 var clearance: float = 1.0
 var fallback: bool = false
 var reason: String = "Esperando demanda"
@@ -48,6 +49,16 @@ func yellow_duration() -> float:
 func green_duration() -> float:
 	return 5.0 if running_mode == "fti" else (11.0 if running_mode == "fixed" else 16.0)
 
+func pedestrian_duration() -> float:
+	return 6.0
+
+func request_pedestrian() -> bool:
+	if pedestrian_pending or stage == "WALK":
+		return false
+	pedestrian_pending = true
+	reason = "Solicitud peatonal en espera de despeje seguro"
+	return true
+
 func step(dt: float, occupied: bool = false) -> void:
 	sensor_age += dt
 	elapsed += dt
@@ -55,6 +66,12 @@ func step(dt: float, occupied: bool = false) -> void:
 	var requested: String = "fixed" if fallback else mode
 	for i in range(4):
 		wait[i] = wait[i] + dt if counts[i] > 0.0 and light(APPROACHES[i]) != "GREEN" else 0.0
+	if stage == "WALK":
+		if elapsed >= pedestrian_duration():
+			stage = "ALL_RED"
+			elapsed = 0.0
+			reason = "Fin de cruce peatonal: intervalo de despeje"
+		return
 	# Algorithm changes and sensor loss must finish yellow and clearance first.
 	if requested != running_mode and stage == "GREEN":
 		stage = "YELLOW"
@@ -71,6 +88,13 @@ func step(dt: float, occupied: bool = false) -> void:
 			reason = "Despejando vehículos dentro del cruce" if occupied else "Intervalo de despeje"
 			return
 		running_mode = requested
+		if pedestrian_pending:
+			pedestrian_pending = false
+			active = []
+			stage = "WALK"
+			elapsed = 0.0
+			reason = "Cruce peatonal protegido"
+			return
 		if requested == "fti":
 			for offset in range(1, 5):
 				var idx: int = (cursor + offset) % 4
@@ -141,7 +165,8 @@ func snapshot() -> Dictionary:
 		"counts": counts.duplicate(), "queues": queues.duplicate(),
 		"sensor_age": sensor_age, "cursor": cursor, "last_axis": last_axis,
 		"wait": wait.duplicate(), "priority": priority, "clearance": clearance,
-		"fallback": fallback, "reason": reason,
+		"fallback": fallback, "pedestrian_pending": pedestrian_pending,
+		"reason": reason,
 	}
 
 static func detect_approach(x: float, z: float, heading: int, inter_x: float, inter_z: float, depth: float = 55.0) -> int:

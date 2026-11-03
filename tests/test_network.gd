@@ -82,6 +82,41 @@ func _run() -> void:
 	check(net.metrics().incidents == 0, "Incidente se recupera sin teletransportar autos")
 	check(net.csv_text().split("\n")[0].begins_with("tiempo_s,cruce") and JSON.parse_string(JSON.stringify(net.snapshot())) is Dictionary, "CSV y estado JSON válidos")
 	check(not net.set_mode("bad") and not net.load_scenario("bad"), "Rechaza configuraciones desconocidas")
+	net.load_scenario("empty")
+	var added: Dictionary = net.add_vehicle(4, "N")
+	check(not added.is_empty() and net.vehicles.size() == 1 and int(added.heading) == 0, "Agrega un vehículo al acceso solicitado")
+	var inserted_on_approach: int = 1
+	for _slot in range(6):
+		if not net.add_vehicle(4, "N").is_empty(): inserted_on_approach += 1
+	check(inserted_on_approach == 7 and safe(net), "Agrega varios vehículos al mismo acceso sin solaparlos")
+	check(net.add_vehicle(4, "N").is_empty() and net.vehicles.size() == 7, "Rechaza inserciones cuando el acceso ya está lleno")
+	check(net.add_vehicle(9, "N").is_empty() and net.add_vehicle(4, "NE").is_empty(), "Rechaza cruce o acceso inválido")
+	net.load_scenario("empty")
+	var demand: Dictionary = net.add_demand(4, [2, 0, 1, 0])
+	check(demand.added == [2, 0, 1, 0] and net.vehicles.size() == 3, "Aplica demanda por separado a los cuatro accesos")
+	check(net.add_demand(4, [2.5, 0, 0, 0]).is_empty() and net.vehicles.size() == 3, "Rechaza cantidades no enteras sin alterar la flota")
+	net.load_scenario("empty")
+	net.set_mode("adaptive")
+	var northbound: Dictionary = net.junctions[4].create_vehicle(0, 40.0, 0)
+	var southbound: Dictionary = net.junctions[4].create_vehicle(2, 40.0, 0)
+	var shared_green: bool = false
+	var no_conflict: bool = true
+	for _step in range(1800):
+		net.tick(1.0 / 60.0)
+		shared_green = shared_green or (bool(northbound.turning) and bool(southbound.turning))
+		no_conflict = no_conflict and safe(net)
+	check(shared_green and no_conflict and int(net.junctions[4].statistics.crossings) >= 2, "Dos direcciones compatibles cruzan juntas y sin colisiones")
+	net.load_scenario("empty")
+	net.set_mode("adaptive")
+	check(net.request_pedestrian(4), "Acepta una solicitud peatonal en el cruce")
+	check(not net.request_pedestrian(4), "Evita solicitudes peatonales duplicadas")
+	advance(net, 1.1)
+	var walking: bool = net.junctions[4].controller.stage == "WALK"
+	for direction in ["N", "E", "S", "W"]:
+		walking = walking and net.junctions[4].controller.light(direction) == "RED"
+	check(walking, "La fase peatonal mantiene los cuatro accesos en rojo")
+	advance(net, 6.1)
+	check(net.junctions[4].controller.stage == "ALL_RED" and safe(net), "La fase peatonal finaliza con el cruce libre de conflictos")
 	for scenario in ["peak_ns", "peak_ew"]:
 		net.load_scenario(scenario)
 		net.set_mode("adaptive")

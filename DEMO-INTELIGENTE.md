@@ -10,6 +10,8 @@
 6. Activa el incidente: un vehículo del cruce observado se detiene 12 s. Los demás conservan separación y luego el vehículo reanuda la circulación. Si ocupa el cruce, se retrasa el siguiente verde hasta despejarlo. No es una simulación de choque con daños.
 7. En Vista, muestra las cajas de colisión, cambia a cámara de seguimiento o vista completa y alterna la transparencia de edificios. Abre el inspector para revisar los tres modelos STL. Al cerrarlo se restaura el estado de pausa previo.
 8. Exporta las métricas CSV y la configuración JSON. Se toma una muestra por segundo y cruce; se conservan 30 minutos de muestras. El registro conserva los últimos 100 eventos y muestra los 30 más recientes.
+9. En Demo, introduce cantidades para Norte, Este, Sur y Oeste del cruce observado. **Aplicar demanda y activar Python** intenta agregar esos vehículos y activa la coordinación; el aviso muestra cuántos cabían. La calle tiene capacidad física finita, por lo que un acceso lleno rechaza los adicionales. Usa **Solicitar cruce peatonal seguro** para una fase exclusiva de seis segundos, después del amarillo y el despeje.
+10. El coordinador Python actualiza prioridades en los nueve cruces cada 2,5 s simulados. Recibe conteos, colas, esperas, estado de sensores y colas aguas abajo; las prioridades son solicitudes al modo adaptativo, no verdes forzados. Sentidos opuestos compatibles reciben verde juntos y los vehículos rectos atraviesan el cruce en paralelo. Los giros conservan una reserva exclusiva para prevenir choques; no se habilitan simultáneamente ejes que se cruzan. Detener el coordinador restaura el modo previo. Requiere Python 3 en PATH o la variable `PYTHON`.
 
 ## Integración respecto a HTML v3
 
@@ -23,27 +25,32 @@
 | Cámaras, transparencia y diagnóstico | Integrados. |
 | Inspector de modelos y estado de pausa | Integrados para la nueva flota. |
 | Modelos actuales | SUV, pickup y bus; las dimensiones de las mallas y del tráfico coinciden. |
-| Conducción manual, peatones, cambios de carril y paradas | Pendientes; no forman parte del recorrido de esta demo. |
+| Movimiento/animación de peatones, conducción manual, cambios de carril y paradas | Pendientes; las solicitudes peatonales sí tienen una fase protegida. |
 | Ruedas independientes, texturas UV y daños físicos | Pendientes; se conservan las mallas STL con materiales sólidos. |
 
 ## Seguridad y circulación
 
 Cada vehículo pertenece a un único sector. Al cruzar el límite se transfiere su estado al siguiente cruce sin cambiar su posición global ni avanzar dos veces en un paso. Los sectores consultan las poses del vecino para anticipar el frenado. En el borde exterior se reutilizan los vehículos por la entrada opuesta cuando hay espacio; es una condición de borde de la simulación.
 
-Cada cruce mantiene una reserva exclusiva. Antes de cambiar de eje se completa el amarillo y se espera al menos un segundo y a que el volumen del cruce esté libre. Los giros usan distancia de arco y los vehículos mantienen sus dimensiones de catálogo. Los STL originales no se modifican.
+Los vehículos rectos de sentidos opuestos compatibles comparten el verde y pueden ocupar el cruce simultáneamente en carriles separados. Los giros usan una reserva exclusiva y distancia de arco. Antes de cambiar de eje se completa el amarillo y se espera al menos un segundo y a que el volumen del cruce esté libre. Los vehículos mantienen sus dimensiones de catálogo. Los STL originales no se modifican.
+
+Las solicitudes peatonales reciben una fase exclusiva de seis segundos: todos los accesos vehiculares permanecen rojos. La fase solo empieza después del amarillo, el intervalo de despeje y la confirmación de cruce libre; después se conserva otro intervalo de despeje antes de dar paso a vehículos. La demo simula la solicitud y la señal, no el movimiento de peatones.
+
+El coordinador Python es un planificador determinista local basado en sensores simulados; no usa aprendizaje automático, Internet ni hardware de tráfico real. Si Python falla, el coordinador se detiene, se informa el error y se restaura el modo previo.
 
 La espera mostrada en el CSV y el comparador es el tiempo detenido acumulado medio de los vehículos activos. La velocidad es la media instantánea de la flota al tomar la muestra. Los cruces completados son el total acumulado de la red. Cambiar el modo no reinicia esas métricas; cambiar de escenario sí lo hace.
 
 ## Validación
 
-- Controlador: 36 comprobaciones, con 14.400 estados iguales a JavaScript.
+- Controlador: paridad con 14.400 estados de JavaScript y pruebas adicionales de solicitud peatonal, exclusión vehicular y despeje.
 - Tráfico unitario: 20 pruebas de frenado, rutas, seguridad y recuperación.
-- Red: 31 pruebas; 120 s por modo con 36 vehículos, sin solapamientos observados ni verdes conflictivos en las comprobaciones. Comprueba además 120 s de hora punta por eje con 54 vehículos, y un obstáculo al otro lado del límite entre sectores. Conserva las identidades y prueba transferencias, sensores aislados, escenarios, prioridad temporal, recuperación e historial.
-- Interfaz: 21 pruebas de selección, cámaras, visibilidad, inspector, escenarios, exportación y comparación/cancelación con conservación del estado.
+- Tráfico y red: pruebas de flujos rectos opuestos simultáneos sin solapamientos, además de 120 s por modo con 36 vehículos, hora punta por eje, inserción por calle, solicitudes peatonales, obstáculos entre sectores, identidades, sensores, prioridad temporal e historial.
+- Interfaz: pruebas de selección, cámaras, inspector, escenarios, entrada de demanda por calle, activación automática de Python, llamada peatonal, exportación y comparación/cancelación.
 - Perfil vial: 13 pruebas de rutas, bus sobre el asfalto, sensores y regresión de seguimiento.
 - Diseño de referencia: 14 pruebas de geometría, entorno, transparencia y presentación.
 - Flota: tres STL, tamaños, apoyo, caché de mallas y correspondencia con los volúmenes lógicos.
 - MCP: 11 pruebas del ejecutor/protocolo e integración real de las siete suites. Las instantáneas de la red se leen completas aunque se recorten los registros.
+- Coordinador Python: seis pruebas de colas, espera, bloqueo aguas abajo, estabilidad de eje, sensores fallidos y entradas inválidas.
 
 Los ensayos no cubren todas las combinaciones posibles de demanda. Se conserva un modelo de circulación conservador con un carril por sentido y paso exclusivo por cruce.
 
