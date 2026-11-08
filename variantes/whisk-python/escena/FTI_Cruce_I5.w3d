@@ -1,0 +1,55 @@
+Whisk3D {
+    version: 20251127
+    Escena {
+        limpiarPantalla: true
+        background: "0.54, 0.71, 0.80, 1.0"
+        Camera { name: "Camara" target: "Barrio" x: 58 y: 69 z: 104 fov: 55 near: 3 far: 400 }
+        Light { name: "Sol" x: 20 y: -35 z: 75 r: 1 g: 1 b: 1 }
+        Wavefront { name: "Barrio" filePath: barrio.obj script: "control.lua" noEditable: true }
+        Wavefront { name: "PosteN" filePath: poste.obj x: -11.7 y: -20 z: 0 rz: 0 }
+        Wavefront { name: "NRojo" filePath: foco.obj x: -11.7 y: -20 z: 4.3 }
+        Wavefront { name: "NAmarillo" filePath: foco.obj x: -11.7 y: -20 z: 3.85 }
+        Wavefront { name: "NVerde" filePath: foco.obj x: -11.7 y: -20 z: 3.4 }
+        Wavefront { name: "PosteE" filePath: poste.obj x: 20 y: -8.1 z: 0 rz: -90 }
+        Wavefront { name: "ERojo" filePath: foco.obj x: 20 y: -8.1 z: 4.3 }
+        Wavefront { name: "EAmarillo" filePath: foco.obj x: 20 y: -8.1 z: 3.85 }
+        Wavefront { name: "EVerde" filePath: foco.obj x: 20 y: -8.1 z: 3.4 }
+        Wavefront { name: "PosteS" filePath: poste.obj x: 8.1 y: 20 z: 0 rz: 180 }
+        Wavefront { name: "SRojo" filePath: foco.obj x: 8.1 y: 20 z: 4.3 }
+        Wavefront { name: "SAmarillo" filePath: foco.obj x: 8.1 y: 20 z: 3.85 }
+        Wavefront { name: "SVerde" filePath: foco.obj x: 8.1 y: 20 z: 3.4 }
+        Wavefront { name: "PosteW" filePath: poste.obj x: -20 y: 8.1 z: 0 rz: 90 }
+        Wavefront { name: "WRojo" filePath: foco.obj x: -20 y: 8.1 z: 4.3 }
+        Wavefront { name: "WAmarillo" filePath: foco.obj x: -20 y: 8.1 z: 3.85 }
+        Wavefront { name: "WVerde" filePath: foco.obj x: -20 y: 8.1 z: 3.4 }
+        Biblioteca {
+            Prefab { name: "fti_suv" Wavefront { filePath: suv.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_pickup" Wavefront { filePath: pickup.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_bus" Wavefront { filePath: bus.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_moto" Wavefront { filePath: moto.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_camaro" Wavefront { filePath: camaro.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_interceptor" Wavefront { filePath: interceptor.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_cyber" Wavefront { filePath: cyber.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_supercar" Wavefront { filePath: supercar.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_furgon" Wavefront { filePath: furgon.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_metrobus" Wavefront { filePath: metrobus.obj visible: false estatico: false noEditable: true } }
+            Prefab { name: "fti_muscle" Wavefront { filePath: muscle.obj visible: false estatico: false noEditable: true } }
+        }
+        Clon { prefab: "fti_suv" name: "fti_base_suv" }
+        Clon { prefab: "fti_pickup" name: "fti_base_pickup" }
+        Clon { prefab: "fti_bus" name: "fti_base_bus" }
+        Clon { prefab: "fti_moto" name: "fti_base_moto" }
+        Clon { prefab: "fti_camaro" name: "fti_base_camaro" }
+        Clon { prefab: "fti_interceptor" name: "fti_base_interceptor" }
+        Clon { prefab: "fti_cyber" name: "fti_base_cyber" }
+        Clon { prefab: "fti_supercar" name: "fti_base_supercar" }
+        Clon { prefab: "fti_furgon" name: "fti_base_furgon" }
+        Clon { prefab: "fti_metrobus" name: "fti_base_metrobus" }
+        Clon { prefab: "fti_muscle" name: "fti_base_muscle" }
+    }
+    Layout {
+        ViewportRow {
+            Viewport3D { orthographic: false ViewFromCameraActive: true showOverlays: false showFloor: false view: MaterialPreview nearClip: 2 farClip: 400 }
+        }
+    }
+}

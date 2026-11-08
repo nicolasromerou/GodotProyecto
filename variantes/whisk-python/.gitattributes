@@ -1,0 +1,15 @@
+*.stl binary
+*.exe binary
+*.ico binary
+*.png binary
+*.obj text eol=lf
+*.mtl text eol=lf
+*.lua text eol=lf
+*.w3d text eol=lf
+*.w3s text eol=lf
+*.patch text eol=lf
+
+# Preserve upstream patch context and third-party resource/license text.
+whisk3d/integracion-fti.patch -whitespace
+whisk3d/licencias/* -whitespace
+whisk3d/res/** -whitespace

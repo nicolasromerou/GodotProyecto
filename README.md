@@ -1,81 +1,79 @@
-# GodotProyecto · Semáforo inteligente
+# GodotProyecto · Variante experimental con Whisk3D y Python
 
-Demo 3D en **Godot 4.7.2**, con nueve cruces conectados y los modelos STL de SUV, pickup y bus. Integra las funciones de control y diagnóstico del simulador HTML v3 en un núcleo GDScript independiente de la vista.
+**Versión experimental en desarrollo.** Esta rama reúne una variante del
+simulador de semáforos inteligentes con Python para la lógica y Whisk3D para
+la visualización. Tiene funciones pendientes y requiere más validación antes
+de un despliegue de producción.
 
-[Resumen de los cambios y su validación](RESUMEN-CAMBIOS.md).
+La rama `experimental/whisk-python-api` parte de `main` en
+`dc095ef63e341260c94e20d2202a267770534333`. El código de esta variante está en
+[`variantes/whisk-python/`](variantes/whisk-python/). El proyecto Godot de
+referencia y su documentación siguen disponibles en [README-GODOT.md](README-GODOT.md).
 
-## Ejecutar
+## Probar la variante
 
-Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. La demo base no necesita Python, Node ni conexión a Internet; el coordinador opcional requiere Python 3.
+En Windows de 64 bits, abre
+[`variantes/whisk-python/INICIAR-FTI.pyw`](variantes/whisk-python/INICIAR-FTI.pyw)
+con Python 3.10 o superior y Tkinter. El launcher permite elegir escenario,
+estrategia, calidad gráfica y servicios de datos. Después pulsa **Iniciar
+sesión**. Las instrucciones completas están en
+[la guía de ejecución](variantes/whisk-python/LEEME.md).
 
-![Demo en Godot](docs/demo.png)
+![Launcher de la variante experimental](variantes/whisk-python/Captura-launcher.png)
 
-## Funciones de la demo
+## Funciones implementadas
 
-- **Red 3 × 3 real:** los vehículos circulan entre cruces, conservan su identidad y frenan también ante vehículos del sector vecino.
-- **FTI, adaptativo y fijo**, con amarillo y despeje antes de cambiar el verde. El controlador conserva la paridad con 14.400 estados del JavaScript original.
-- **Sensores por acceso**, colas, espera, profundidad ajustable de 25–85 m, fallos por cruce o globales y respaldo fijo tras 5 s sin lecturas.
-- **V2I temporal**, con transiciones seguras y cancelación automática a los 20 s. La solicitud de prueba se activa desde la pestaña Demo.
-- **Escenarios reproducibles:** normal (36 vehículos), hora punta por eje (54), ausencia de demanda e incidente con recuperación a los 12 s.
-- **Demanda configurable por calle:** introduce cuántos vehículos llegan desde Norte, Este, Sur y Oeste. Aplicar la demanda agrega los que caben y activa Python automáticamente.
-- **Flujo paralelo:** sentidos opuestos compatibles comparten el verde adaptativo y atraviesan el cruce a la vez; los giros conservan reserva exclusiva para evitar colisiones. Los accesos incompatibles nunca reciben verde simultáneo.
-- **Coordinador local en Python:** cada 2,5 s analiza colas, esperas y congestión aguas abajo de los nueve cruces, y pide prioridades adaptativas sin saltarse las transiciones seguras. Requiere Python 3; no usa Internet ni controla hardware.
-- **Comparación de algoritmos:** ejecuta los tres modos durante 120 s con la misma flota y escenario en una red independiente. Conserva la demo visible y permite cancelar.
-- **Telemetría y exportación:** historial de demanda, registro de eventos, métricas CSV, configuración JSON y CSV de comparación.
-- **Calle reconstruida desde el PNG:** avenida norte dividida, mediana arbolada, bordillos curvos, cebras y doble amarilla, con rutas y sensores alineados.
-- **Entorno urbano:** edificios bajos con fachadas, jardines, estacionamientos, árboles, farolas y bancos.
-- **Vista libre, seguimiento y vista de red**, transparencia opcional, zonas de detección, volúmenes de colisión y presentación sin interfaz con F2.
-- **Inspector de la flota:** muestra los tres STL y pausa la ciudad; al salir recupera su estado anterior.
-- **Paso fijo de 60 Hz**, velocidades ×0,5/×1/×2/×4, interpolación y señalización agrupada con MultiMesh para reducir llamadas de dibujo.
+- Red de nueve cruces calculada en Python, con el cruce I-5 visible en Whisk3D.
+- Estrategias FTI, adaptativa, fija y coordinada, con fases de amarillo y
+  despeje, sensores virtuales, respaldo ante fallo y solicitud peatonal.
+- Cinco perfiles de demanda hasta 324 vehículos en la red y modo manual
+  de 0 a 36 vehículos en I-5.
+- Once modelos, incluida la moto y dos buses distintos. Orientación frontal,
+  tapas de rueda, materiales y texturas compartidas revisados.
+- Panel redimensionable, cámaras, pausa, reinicio, recuperación del visor y
+  avance de un paso para depuración.
+- Registro y exportación CSV/JSON, API local de lectura y conector HTTP
+  configurable para publicar datos en un servidor.
+- API de servidor con FastAPI, persistencia SQLite, deduplicación de entregas,
+  token de lectura opcional y orígenes web configurables.
 
-La reconstrucción vial se detalla en [CALLE-DESDE-REFERENCIA.md](CALLE-DESDE-REFERENCIA.md).
+## Documentación
 
-Consulta [DEMO-INTELIGENTE.md](DEMO-INTELIGENTE.md) para el recorrido de presentación, las pruebas y el alcance.
-
-## Controles
-
-Botón derecho: orbitar. Rueda: zoom. Inicio: centrar el cruce observado. Espacio: pausa. F1: alternar el panel. F2: presentación sin interfaz. Esc: cerrar plano/inspector o cancelar comparación. Las pestañas **Control**, **Demo**, **Vista** y **Datos** reúnen los controles de la aplicación.
-
-## Pruebas
-
-Con Godot en `PATH`:
-
-```sh
-godot --headless --editor --import --path .
-godot --headless --path . --script res://tests/test_controller.gd
-godot --headless --path . --script res://tests/test_world.gd
-godot --headless --path . --script res://tests/test_network.gd
-godot --headless --path . --script res://tests/test_demo.gd
-godot --headless --path . --script res://tests/test_fleet.gd
-godot --headless --path . --script res://tests/test_road_profile.gd
-godot --headless --path . --script res://tests/test_reference_scene.gd
-```
-
-El puente MCP y sus pruebas requieren Python 3.10 o posterior, sin paquetes adicionales:
-
-```sh
-python tools/test_mcp.py --integration
-python -m unittest tests.test_traffic_coordinator
-```
-
-Si Godot no está en `PATH`, define `GODOT_PATH` con el ejecutable principal. En PowerShell puedes ejecutar los comandos directos con `& $env:GODOT_PATH`.
-
-## Código
-
-| Archivo | Responsabilidad |
+| Guía | Contenido |
 | --- | --- |
-| `scripts/traffic_controller.gd` | Modos, fases vehiculares y cruces peatonales protegidos. |
-| `scripts/traffic_world.gd` | Seguimiento, frenado, reserva y circulación dentro de cada cruce. |
-| `scripts/network_world.gd` | Nueve cruces, demanda manual, transferencias, métricas y exportación. |
-| `scripts/demo_view.gd` | Interfaz, ciudad, coordinación local Python, cámaras y diagnóstico. |
-| `tools/traffic_coordinator.py` | Prioridades por demanda, espera y colas aguas abajo; biblioteca estándar de Python. |
-| `scripts/traffic_math.gd` | Trayectorias por distancia de arco y comprobaciones SAT. |
-| `scripts/fleet_catalog.gd` | Rutas, dimensiones y colores compartidos por vista y tráfico. |
-| `scripts/stl_fleet.gd` | Lectura y normalización de los STL originales. |
-| `tools/` | [Puente MCP opcional](CONEXION-MCP.md) y simulaciones headless. |
+| [Variante Whisk](variantes/whisk-python/README.md) | Requisitos, entrada y mapa de archivos |
+| [Ejecución y controles](variantes/whisk-python/LEEME.md) | Launcher, tráfico, cámara y datos |
+| [Arquitectura](variantes/whisk-python/docs/ARQUITECTURA.md) | Módulos, flujo de datos, lenguajes y herramientas |
+| [Estado y pendientes](variantes/whisk-python/docs/ESTADO-Y-PENDIENTES.md) | Alcance actual, limitaciones y ampliaciones |
+| [Pruebas](variantes/whisk-python/docs/PRUEBAS.md) | Comandos, resultados y límites de la validación |
+| [Integración de datos](variantes/whisk-python/API.md) | Contrato JSON, consultas y extensión del módulo |
+| [API de servidor](variantes/whisk-python/servidor/LEEME.md) | Dependencias, configuración, tokens y despliegue |
+| [Procedencia y licencias](variantes/whisk-python/NOTICE.md) | Whisk3D, componentes y recursos |
+| [Visor modificado](variantes/whisk-python/docs/VISOR-WHISK.md) | Revisión base y parche del motor |
 
-Para añadir vehículos en el futuro, incorpora su STL binario y una entrada al catálogo. Comprueba dimensiones y orientación con las pruebas de flota antes de ampliar la circulación.
+## Lenguajes y herramientas
 
-## Alcance
+| Tecnología | Uso |
+| --- | --- |
+| Python | Simulación, launcher, interfaz, telemetría, API y conversión de modelos |
+| Tkinter y Tcl/Tk | Interfaz de escritorio y diálogos |
+| Lua | Recepción de instantáneas, interpolación y actualización visual |
+| C++ | Visor Whisk3D y sus ajustes de integración |
+| OpenGL y SDL2 | Renderizado y ventana nativa |
+| FastAPI y Uvicorn | Servicio de recepción y consulta de datos |
+| SQLite | Último estado, historial y control de entregas |
+| HTTP, JSON y CSV | Intercambio y exportación |
+| STL, OBJ/MTL y PNG | Mallas, materiales y texturas |
+| Git, PowerShell, CMake, Ninja y MSVC | Desarrollo, comprobaciones y compilación del visor |
 
-Un carril por sentido; los movimientos rectos de sentidos opuestos pueden compartir el verde, mientras los giros reservan el cruce. El tráfico es cinemático y usa SAT para impedir invasiones; no simula suspensión ni daños físicos. La fase peatonal protege el cruce durante solicitudes, pero no anima peatones ni cuenta personas. El coordinador es una heurística local de demostración, no una garantía de que nunca habrá congestión; no se conecta a infraestructura real. El trazado del cruce central se reconstruyó en 3D a partir de `calle/Cruce_Calles.png`, con avenida norte dividida, mediana y esquinas curvas. Quedan fuera la conducción manual, cambios de carril, paradas de bus y animación independiente de ruedas. Los modelos usan materiales sólidos, sin texturas UV nuevas.
+## Trabajo pendiente
+
+La evaluación de rendimiento en otros equipos, el despliegue HTTPS en un
+servidor concreto, la ampliación de la escena visible a toda la red y la
+mejora progresiva de los modelos forman parte del trabajo futuro. La
+circulación es cinemática y la comprobación de colisiones se ha ejercitado en
+escenarios de prueba. Los resultados registrados corresponden a la revisión
+documentada y a sus muestras.
+
+El detalle de las capacidades existentes y de las funciones por completar
+está en [Estado y pendientes](variantes/whisk-python/docs/ESTADO-Y-PENDIENTES.md).

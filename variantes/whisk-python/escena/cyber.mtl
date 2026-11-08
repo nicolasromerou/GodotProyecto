@@ -1,0 +1,39 @@
+newmtl cyber_carroceria
+Ka 0.600 0.650 0.690
+Kd 0.600 0.650 0.690
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl cyber_bajos
+Ka 0.210 0.230 0.260
+Kd 0.210 0.230 0.260
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl cyber_goma
+Ka 0.080 0.090 0.100
+Kd 0.080 0.090 0.100
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl cyber_cubierta
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.15 0.15 0.15
+Ns 22
+map_Kd llanta.png
+newmtl cyber_faro
+Ka 0.950 0.920 0.730
+Kd 0.950 0.920 0.730
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl cyber_piloto
+Ka 0.680 0.090 0.120
+Kd 0.680 0.090 0.120
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl cyber_cristal
+Ka 0.420 0.540 0.620
+Kd 0.420 0.540 0.620
+Ks 0.03 0.03 0.03
+Ns 22
+map_Kd vidrio.png

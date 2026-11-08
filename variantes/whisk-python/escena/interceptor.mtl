@@ -1,0 +1,45 @@
+newmtl interceptor_carroceria
+Ka 0.230 0.320 0.480
+Kd 0.230 0.320 0.480
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl interceptor_bajos
+Ka 0.210 0.230 0.260
+Kd 0.210 0.230 0.260
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl interceptor_goma
+Ka 0.080 0.090 0.100
+Kd 0.080 0.090 0.100
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl interceptor_cubierta
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.15 0.15 0.15
+Ns 22
+map_Kd llanta.png
+newmtl interceptor_piloto
+Ka 0.680 0.090 0.120
+Kd 0.680 0.090 0.120
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl interceptor_azul
+Ka 0.180 0.470 0.850
+Kd 0.180 0.470 0.850
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl interceptor_faro
+Ka 0.950 0.920 0.730
+Kd 0.950 0.920 0.730
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl interceptor_cristal
+Ka 0.420 0.540 0.620
+Kd 0.420 0.540 0.620
+Ks 0.03 0.03 0.03
+Ns 22
+map_Kd vidrio.png

@@ -1,0 +1,535 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index dd06645..3d13f77 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -298,6 +298,14 @@ if(WIN32)
+         ${CMAKE_BINARY_DIR}/whisk3d.rc @ONLY)
+     target_sources(whisk3d PRIVATE ${CMAKE_BINARY_DIR}/whisk3d.rc)
+ 
++    if(MSVC)
++        # SDL delivers UTF-8 paths. Keep the Win32 and CRT narrow-path APIs on
++        # the same code page so portable installs can live in Unicode paths.
++        set(W3D_UTF8_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/platform/windows/whisk3d-utf8.manifest")
++        target_link_options(whisk3d PRIVATE "/MANIFESTINPUT:${W3D_UTF8_MANIFEST}")
++        set_property(TARGET whisk3d APPEND PROPERTY LINK_DEPENDS "${W3D_UTF8_MANIFEST}")
++    endif()
++
+ endif()
+ 
+ # ---------------------------------------------------
+diff --git a/main/app/main.cpp b/main/app/main.cpp
+index f5d0590..5fe0c28 100644
+--- a/main/app/main.cpp
++++ b/main/app/main.cpp
+@@ -19,6 +19,7 @@
+ #include <emscripten/html5.h> // tamano del canvas (resize) + cancelar el loop al salir
+ #endif
+ #include "ViewPorts/LayoutInput.h" // ruteo compartido + overlay del menu
++#include "script/BindsJuego.h"
+ #if !defined(W3D_SYMBIAN) // Desktop (Win/Linux) + Web + ANDROID: comparten el file browser interno + la
+                         // carga por w3dEngine (import/export, browser, texturas, warp, swap). Symbian tiene lo suyo.
+     #define NOMINMAX
+@@ -374,6 +375,8 @@ static unsigned int RelojSDL() { return SDL_GetTicks(); }
+ struct W3dIntentoGL { int msaa, estencil, z; const char* que; };
+ static bool g_glSinMsaa = false;   // se pidio antialiasing y el driver no lo dio (se avisa al abrir)
+ static bool g_ventanaOculta = false;   // --script en Windows: la ventana se crea oculta (ver el arranque de main)
++static bool g_ftiCalidadAlta = false;
++extern bool g_vistaAdaptable;
+ static SDL_Window* CrearVentanaGL(const char* titulo, int w, int h, Uint32 flags, bool antialias, SDL_GLContext* ctxOut) {
+ #ifdef W3D_3DS
+     // la 3DS no tiene OpenGL: la ventana es la pantalla de abajo (la tactil, donde SDL entrega los toques) y dibuja
+@@ -385,6 +388,7 @@ static SDL_Window* CrearVentanaGL(const char* titulo, int w, int h, Uint32 flags
+     return win3ds;
+ #endif
+     static const W3dIntentoGL kIntentos[] = {
++        { 8, 8, 24, "antialiasing 8x, estencil 8, profundidad 24" },
+         { 4, 8, 24, "antialiasing 4x, estencil 8, profundidad 24" },
+         { 2, 8, 24, "antialiasing 2x, estencil 8, profundidad 24" },
+         { 0, 8, 24, "sin antialiasing, estencil 8, profundidad 24" },
+@@ -393,19 +397,26 @@ static SDL_Window* CrearVentanaGL(const char* titulo, int w, int h, Uint32 flags
+     };
+     const int n = (int)(sizeof(kIntentos) / sizeof(kIntentos[0]));
+     const bool forzarFallo = std::getenv("W3D_GL_PRUEBA_RESPALDO") != NULL;
+-    for (int i = antialias ? 0 : 2; i < n; i++) {
++    antialias = antialias || g_ftiCalidadAlta;
++    const int primero = g_ftiCalidadAlta ? 0 : (antialias ? 1 : 3);
++    for (int i = primero; i < n; i++) {
+         const W3dIntentoGL& t = kIntentos[i];
+         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, t.msaa ? 1 : 0);
+         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, t.msaa);
+         SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, t.estencil);
+         SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, t.z);
+-        if (forzarFallo && i == (antialias ? 0 : 2)) { w3dLogfW("Ventana GL (%s): fallo forzado por W3D_GL_PRUEBA_RESPALDO", t.que); continue; }
++        if (forzarFallo && i == primero) { w3dLogfW("Ventana GL (%s): fallo forzado por W3D_GL_PRUEBA_RESPALDO", t.que); continue; }
+         SDL_Window* win = SDL_CreateWindow(titulo, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
+         if (!win) { w3dLogfW("Ventana GL (%s): %s", t.que, SDL_GetError()); continue; }
+         SDL_GLContext ctx = SDL_GL_CreateContext(win);
+         if (!ctx) { w3dLogfW("Contexto GL (%s): %s", t.que, SDL_GetError()); SDL_DestroyWindow(win); continue; }
+         if (antialias && t.msaa == 0) g_glSinMsaa = true;
+-        if (i > (antialias ? 0 : 2)) w3dLogf("Ventana GL abierta con respaldo: %s", t.que);
++        if (i > primero) w3dLogf("Ventana GL abierta con respaldo: %s", t.que);
++        if (g_ftiCalidadAlta) {
++            int samples = 0;
++            SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &samples);
++            w3dLogf("FTI: perfil alto, antialiasing efectivo %dx.", samples);
++        }
+         *ctxOut = ctx;
+         return win;
+     }
+@@ -688,8 +699,52 @@ static bool CambiosGuardar() {
+     if (w3dPath.empty()) { GuardarProyectoComo(); return false; }   // (sin archivo: primero "Guardar como")
+     return GuardarW3D(w3dPath);
+ }
++#if defined(_WIN32)
++static bool ProcesarControlFti(const SDL_Event& e) {
++    if (!W3dFtiActivo()) return false;
++    if ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) && e.button.button == SDL_BUTTON_MIDDLE)
++        return true;
++    if (e.type == SDL_MOUSEMOTION && (e.motion.state & SDL_BUTTON_MMASK)) {
++        if (e.motion.xrel != 0) W3dFtiPedir(FtiGiro, -e.motion.xrel);
++        if (e.motion.yrel != 0) W3dFtiPedir(FtiInclinacion, e.motion.yrel);
++        return true;
++    }
++    if (e.type == SDL_MOUSEWHEEL && e.wheel.y != 0) {
++        const int steps = e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -e.wheel.y : e.wheel.y;
++        W3dFtiPedir(FtiZoom, steps * 10);
++        return true;
++    }
++    if ((e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) ||
++        (e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) return false;
++    const SDL_Keycode key = e.key.keysym.sym;
++    W3dFtiAccion action;
++    int value = 0;
++    switch (key) {
++        case SDLK_SPACE: case SDLK_ESCAPE: action = FtiPausa; break;
++        case SDLK_r: action = FtiReinicio; break;
++        case SDLK_s: action = FtiSensores; break;
++        case SDLK_p: action = FtiPeaton; break;
++        case SDLK_LEFT: action = FtiGiro; value = -10; break;
++        case SDLK_RIGHT: action = FtiGiro; value = 10; break;
++        case SDLK_UP: action = FtiInclinacion; value = 5; break;
++        case SDLK_DOWN: action = FtiInclinacion; value = -5; break;
++        default:
++            if (key >= SDLK_1 && key <= SDLK_4) { action = FtiVista; value = key - SDLK_1; }
++            else if (key >= SDLK_F5 && key <= SDLK_F8) { action = FtiModo; value = key - SDLK_F5; }
++            else if (key >= SDLK_F9 && key <= SDLK_F12) { action = FtiEscenario; value = key - SDLK_F9; }
++            else return false;
++    }
++    if (e.type == SDL_KEYDOWN && (!e.key.repeat || action == FtiGiro || action == FtiInclinacion))
++        W3dFtiPedir(action, value);
++    return true;
++}
++#endif
++
+ static void ProcesarEvento(SDL_Event& e) {
+     g_redraw = true;
++#if defined(_WIN32)
++    if (ProcesarControlFti(e)) return;
++#endif
+ #ifdef W3D_DREAMCAST
+     if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID) { extern void W3dDcMouseMovido(); W3dDcMouseMovido(); }
+ #endif
+@@ -738,7 +793,11 @@ static void ProcesarEvento(SDL_Event& e) {
+         return;
+     }
+ #endif
+-    if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_RESIZED) {
++    if (e.type == SDL_WINDOWEVENT &&
++        (e.window.event == SDL_WINDOWEVENT_RESIZED ||
++         (g_vistaAdaptable && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED))) {
++        if (e.window.data1 <= 0 || e.window.data2 <= 0 ||
++            (e.window.data1 == winW && e.window.data2 == winH)) return;
+         winW = e.window.data1;
+         winH = e.window.data2;
+         W3dTecladoRedimension(winW, winH);   // Android: el teclado achica la ventana -> maximizar el viewport que lo pidio
+@@ -746,6 +805,7 @@ static void ProcesarEvento(SDL_Event& e) {
+         MenuPantallaW = winW;
+         MenuPantallaH = winH;
+         rootViewport->Resize(winW, winH);
++        g_redraw = true;
+     } else {
+         InputUsuarioSDL3(e);
+     }
+@@ -775,6 +835,9 @@ static void MainLoopFrame() {
+         }
+     }
+     Contadores();
++#if defined(_WIN32)
++    W3dFtiEnviarAcciones();
++#endif
+     // EL TITULO de la ventana dice el proyecto y un '*' si hay algo sin guardar (cada medio segundo: listar lo
+     // sucio recorre la biblioteca)
+     {
+@@ -789,6 +852,9 @@ static void MainLoopFrame() {
+             char titulo[512];
+             snprintf(titulo, sizeof(titulo), "Whisk3D Pre-Alpha %s%s%s%s", W3dVersion(), nom.empty() ? "" : " - ", nom.c_str(),
+                      W3dCambiosHayCache() ? " *" : "");
++#if defined(_WIN32)
++            if (W3dFtiActivo()) snprintf(titulo, sizeof(titulo), "%s", W3dFtiTitulo());
++#endif
+             static std::string ultimo;
+             if (ultimo != titulo) { ultimo = titulo; SDL_SetWindowTitle(window, titulo); }
+         }
+@@ -1208,6 +1274,19 @@ int main(int argc, char* argv[]) {
+     // abre un framebuffer de software y no hay contexto GL
+     SDL_SetHint(SDL_HINT_DC_VIDEO_MODE, "SDL_DC_OPENGL_VIDEO");
+ #endif
++    for (int ai = 1; ai < argc; ++ai) {
++        if (std::string(argv[ai]) == "--vista-adaptable") g_vistaAdaptable = true;
++        if (std::string(argv[ai]) == "--fti-calidad-alta") g_ftiCalidadAlta = true;
++#if defined(_WIN32)
++        if (std::string(argv[ai]) == "--fti-canal") {
++            extern bool W3dFtiOpen(const char*);
++            if (++ai == argc || !W3dFtiOpen(argv[ai])) {
++                std::cerr << "FTI: no se pudo abrir el canal local." << std::endl;
++                return 3;
++            }
++        }
++#endif
++    }
+     if (SDL_Init(initFlags) != 0) {
+         std::cerr << "Error SDL_Init: " << SDL_GetError() << std::endl;
+         return -1;
+@@ -1326,6 +1405,14 @@ int main(int argc, char* argv[]) {
+     #endif
+     }
+     winW = cfg.width;  winH = cfg.height;  // aplicar el tamano del config a la ventana
++#if defined(_WIN32)
++    SDL_Rect area;
++    if (g_vistaAdaptable && !g_ventanaOculta && !cfg.fullscreen &&
++        SDL_GetDisplayUsableBounds(0, &area) == 0) {
++        winW = std::min(winW, std::max(420, area.w - 32));
++        winH = std::min(winH, std::max(280, area.h - 64));
++    }
++#endif
+                                         // (antes quedaba el default 640x480: el config no se usaba)
+ #ifdef W3D_DREAMCAST
+     // la Dreamcast: la salida de video es 640x480 (VGA o TV), la UI a escala 1 y sin antialiasing (la PVR no lo hace)
+@@ -1421,6 +1508,9 @@ int main(int argc, char* argv[]) {
+     }
+     if (g_glSinMsaa) w3dLogfW("Antialiasing pedido pero el driver no lo ofrece: se abre sin multisampling");
+ 
++#if defined(_WIN32)
++    if (g_vistaAdaptable) SDL_SetWindowMinimumSize(window, 420, 280);
++#endif
+     SDL_GetWindowSize(window, &winW, &winH);
+ 
+ #if defined(W3D_WEBGL) || defined(W3D_MULTIBACKEND)
+@@ -1616,4 +1706,4 @@ int main(int argc, char* argv[]) {
+     SDL_DestroyWindow(window);
+     SDL_Quit();
+     return 0;
+-}
+\ No newline at end of file
++}
+diff --git a/main/importers/import_wobj.cpp b/main/importers/import_wobj.cpp
+index 5a06e91..f9c4c98 100644
+--- a/main/importers/import_wobj.cpp
++++ b/main/importers/import_wobj.cpp
+@@ -3,6 +3,7 @@
+ #include "objects/MallaDatos.h" // geometria compartida por ruta (dedup del re-import)
+ #include "io/w3dFilesystem.h"   // leer por el Core: sirve igual en disco, en el pak y en el APK
+ #include "base/w3dlog.h"        // w3dTickMs (instrumentar la carga) + w3dLogf
++#include "base/W3dNombres.h"
+ #include "importers/import_w3d.h" // g_w3dCargaFases / g_w3dCargaReloj: el reparto de cargabench
+ #include <sstream>
+ #include <iostream>   // std::cerr (avisos de parseo)
+@@ -179,6 +180,11 @@ Mesh* LeerWOBJ(std::istream& file, const std::string& filename, Object* parent,
+         Wobj.ConvertToES1(mesh, &acumuladoVertices, &acumuladoNormales, &acumuladoUVs, vertToCP);
+     }
+ 
++    // OBJ no trae nombres de partes para los bloques usemtl. Conserva la
++    // numeración histórica del lector de escenas, desde la importación.
++    for (size_t i = 1; i < mesh->materialsGroup.size(); ++i)
++        mesh->materialsGroup[i].name = W3dNombreConSufijo("Mesh", (int)i);
++
+     return mesh;
+ }
+ 
+@@ -307,4 +313,4 @@ Mesh* ImportWOBJ(const std::string& filepath, Object* parent, bool NoMerge, bool
+     if (mesh) W3dMallaCompartirTrasImport(mesh, NoMerge ? filepath + "|nomerge" : filepath);
+ 
+     return mesh;
+-}
+\ No newline at end of file
++}
+diff --git a/main/script/BindsJuego.cpp b/main/script/BindsJuego.cpp
+index a0cf3db..0bd81fb 100644
+--- a/main/script/BindsJuego.cpp
++++ b/main/script/BindsJuego.cpp
+@@ -35,11 +35,115 @@
+ #include "base/W3dConfig.h"            // ConfigMudo(): mute global del Core
+ #include "W3dAviso.h"                  // W3dAvisof: el aviso de control conectado/desconectado
+ 
++#if defined(_WIN32)
++#include <windows.h>
++#include <string.h>
++#include <deque>
++#endif
++
+ extern "C" {
+ #include "lua.h"
+ #include "lauxlib.h"
+ }
+ 
++#if defined(_WIN32)
++namespace {
++const DWORD FtiFrameSize = 16384;
++const DWORD FtiAckSize = 256;
++const DWORD FtiAckOffset = sizeof(DWORD) + FtiFrameSize;
++const DWORD FtiInputOffset = FtiAckOffset + sizeof(DWORD) + FtiAckSize;
++const DWORD FtiInputCapacity = 128;
++struct FtiInput { LONG action; LONG value; };
++
++struct FtiChannel {
++    HANDLE mapping;
++    HANDLE mutex;
++    unsigned char* memory;
++    bool paused;
++    std::string title;
++    std::deque<FtiInput> pending;
++    FtiChannel() : mapping(NULL), mutex(NULL), memory(NULL), paused(true), title("FTI | Conectando") {}
++    ~FtiChannel() {
++        if (memory) UnmapViewOfFile(memory);
++        if (mutex) CloseHandle(mutex);
++        if (mapping) CloseHandle(mapping);
++    }
++    bool lock() const {
++        const DWORD result = WaitForSingleObject(mutex, 0);
++        return result == WAIT_OBJECT_0 || result == WAIT_ABANDONED;
++    }
++} fti;
++
++int LFtiRead(lua_State* L) {
++    char frame[FtiFrameSize];
++    DWORD size = 0;
++    if (fti.lock()) {
++        memcpy(&size, fti.memory, sizeof(size));
++        if (size <= FtiFrameSize) memcpy(frame, fti.memory + sizeof(size), size);
++        ReleaseMutex(fti.mutex);
++    }
++    if (size == 0 || size > FtiFrameSize) lua_pushnil(L);
++    else lua_pushlstring(L, frame, size);
++    return 1;
++}
++
++int LFtiAck(lua_State* L) {
++    size_t size = 0;
++    const char* text = luaL_checklstring(L, 1, &size);
++    fti.paused = lua_toboolean(L, 2) != 0;
++    fti.title = luaL_optstring(L, 3, "FTI");
++    const bool ok = size <= FtiAckSize && fti.lock();
++    if (ok) {
++        const DWORD length = (DWORD)size;
++        memcpy(fti.memory + FtiAckOffset + sizeof(length), text, size);
++        memcpy(fti.memory + FtiAckOffset, &length, sizeof(length));
++        ReleaseMutex(fti.mutex);
++    }
++    lua_pushboolean(L, ok);
++    return 1;
++}
++}
++
++bool W3dFtiActivo() { return fti.memory != NULL; }
++bool W3dFtiPausado() { return fti.paused; }
++const char* W3dFtiTitulo() { return fti.title.c_str(); }
++
++void W3dFtiEnviarAcciones() {
++    if (!fti.memory || fti.pending.empty() || !fti.lock()) return;
++    DWORD count = 0;
++    memcpy(&count, fti.memory + FtiInputOffset, sizeof(count));
++    if (count > FtiInputCapacity) count = 0;
++    while (count < FtiInputCapacity && !fti.pending.empty()) {
++        memcpy(fti.memory + FtiInputOffset + sizeof(count) + count * sizeof(FtiInput),
++               &fti.pending.front(), sizeof(FtiInput));
++        ++count;
++        fti.pending.pop_front();
++    }
++    memcpy(fti.memory + FtiInputOffset, &count, sizeof(count));
++    ReleaseMutex(fti.mutex);
++}
++
++void W3dFtiPedir(W3dFtiAccion accion, int valor) {
++    if (!fti.memory) return;
++    FtiInput item = { (LONG)accion, (LONG)valor };
++    fti.pending.push_back(item);
++    W3dFtiEnviarAcciones();
++}
++
++bool W3dFtiOpen(const char* channel) {
++    const std::string name(channel);
++    if (fti.memory || name.size() != 42 || name.compare(0, 10, "Local\\FTI_") != 0 ||
++        name.find_first_not_of("0123456789abcdef", 10) != std::string::npos) return false;
++    fti.mapping = OpenFileMappingA(FILE_MAP_WRITE, FALSE, channel);
++    if (!fti.mapping) return false;
++    fti.mutex = OpenMutexA(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, (name + "_mtx").c_str());
++    if (!fti.mutex) return false;
++    fti.memory = (unsigned char*)MapViewOfFile(fti.mapping, FILE_MAP_WRITE, 0, 0,
++                                              FtiInputOffset + sizeof(DWORD) + FtiInputCapacity * sizeof(FtiInput));
++    return fti.memory != NULL;
++}
++#endif
++
+ #include <math.h>   // fabsf() para chocan()
+ #include <map>      // cache de sonidos cargados por sonido()
+ #include <algorithm> // perfilLua: lo mas caro primero
+@@ -1754,6 +1858,12 @@ void BindsJuegoRegistrar(void* Lv) {
+     lua_pushcfunction(L, LCapturarPantalla); lua_setglobal(L, "capturarPantalla");
+     lua_pushcfunction(L, LCapturaUV);   lua_setglobal(L, "capturaUV");
+     lua_pushcfunction(L, LResolucion);  lua_setglobal(L, "resolucion");
++#if defined(_WIN32)
++    if (fti.memory) {
++        lua_pushcfunction(L, LFtiRead); lua_setglobal(L, "ftiLeer");
++        lua_pushcfunction(L, LFtiAck); lua_setglobal(L, "ftiConfirmar");
++    }
++#endif
+     lua_pushcfunction(L, LSetMemoria);  lua_setglobal(L, "setMemoria");
+     lua_pushcfunction(L, LMemoria);     lua_setglobal(L, "memoria");
+     lua_pushcfunction(L, LSetMemorias); lua_setglobal(L, "setMemorias");
+diff --git a/main/script/BindsJuego.h b/main/script/BindsJuego.h
+index ec6e1ba..3fa0c6a 100644
+--- a/main/script/BindsJuego.h
++++ b/main/script/BindsJuego.h
+@@ -184,4 +184,16 @@ bool BindsJuegoQuierePararse(void);
+ // verificacion del juego compilado (W3dGameCaptura), que guarda un PNG y cierra.
+ void BindsJuegoPedirSalir(void);
+ 
++#if defined(_WIN32)
++enum W3dFtiAccion {
++    FtiPausa = 1, FtiReinicio, FtiVista, FtiGiro, FtiInclinacion, FtiZoom,
++    FtiSensores, FtiPeaton, FtiModo, FtiEscenario
++};
++bool W3dFtiActivo();
++bool W3dFtiPausado();
++const char* W3dFtiTitulo();
++void W3dFtiPedir(W3dFtiAccion accion, int valor = 0);
++void W3dFtiEnviarAcciones();
++#endif
++
+ #endif // BINDSJUEGO_H
+diff --git a/main/ui/ViewPorts/LayoutInput.cpp b/main/ui/ViewPorts/LayoutInput.cpp
+index 07271fe..d388c27 100644
+--- a/main/ui/ViewPorts/LayoutInput.cpp
++++ b/main/ui/ViewPorts/LayoutInput.cpp
+@@ -5,6 +5,7 @@
+ #include "app/W3dAtajos.h" // atajos reasignados: la tecla apretada -> la de la funcion
+ #include "ViewPorts/PopUp/ConfirmarPopup.h" // AbrirConfirmarBorrado (popup de confirmar borrado)
+ #include "ViewPorts/LayoutInput.h"
++#include "script/BindsJuego.h"
+ #include "ViewPorts/LayoutArbol.h" // aviso de destruccion de viewports + borrar un arbol entero
+ #include "edit/MeshEdit.h"
+ #include "edit/UVUnwrap.h"
+@@ -3320,11 +3321,17 @@ static bool LayoutTransporteBarra3D(ViewportBase* vp, int mx, int my) {
+     extern bool SimActiva(); extern void SimStop();
+     if (bs && bs->visible && bs->Contains(mx, my)) {
+         Viewport3DActive = (Viewport3D*)vp;
++#if defined(_WIN32)
++        if (W3dFtiActivo()) { W3dFtiPedir(FtiReinicio); g_redraw = true; return true; }
++#endif
+         if (SimActiva()) SimStop();       // restaura el estado inicial + descarga scripts
+         PlayAnimation = false; g_redraw = true; return true;
+     }
+     if (bl && bl->visible && bl->Contains(mx, my)) {
+         Viewport3DActive = (Viewport3D*)vp;
++#if defined(_WIN32)
++        if (W3dFtiActivo() && SimActiva()) { W3dFtiPedir(FtiPausa); g_redraw = true; return true; }
++#endif
+         if (PlayAnimation) { PlayAnimation = false; }   // pausa
+         else {
+             // MISMA PUERTA que el Play del timeline: no arrancar con texturas en la cola diferida
+diff --git a/main/ui/ViewPorts/ViewPort3D.cpp b/main/ui/ViewPorts/ViewPort3D.cpp
+index 893e0b1..36b33e0 100644
+--- a/main/ui/ViewPorts/ViewPort3D.cpp
++++ b/main/ui/ViewPorts/ViewPort3D.cpp
+@@ -48,17 +48,19 @@ static bool JuegoSimActiva() { extern bool SimActiva(); return SimActiva(); }
+ // dibujando una MITAD de la pantalla dividida (RenderDividido): la mitad es la imagen entera (sin encuadre ni bandas)
+ // y el Render no vuelve a partir
+ static bool gVistaPartida = false;
++bool g_vistaAdaptable = false;
+ extern int g_juegoPuro;
+ // el aspecto del MARCO de la camara en un viewport de aspecto 'va'. En el MODO JUEGO PURO (VERDE+0, sin la UI) el marco
+ // es la pantalla: en COVER (2) siempre; con BANDAS (1) solo si la camara declara un aspecto (ese es el del juego: lo de
+ // afuera, negro). Sin declarar, el aspecto del render no importa ahi: el juego llena la pantalla
+ static float AspectoMarco(float va) {
+-    if (g_juegoPuro == 2 || gVistaPartida) return va;
++    if (g_vistaAdaptable || g_juegoPuro == 2 || gVistaPartida) return va;
+     if (g_juegoPuro && !(CameraActive && CameraActive->AspectoDeclarado() > 0.01f)) return va;
+     const float ra = W3dAspectoJuego();
+     return (ra < 1e-4f) ? va : ra;
+ }
+ #include "ViewPorts/LayoutInput.h" // LayoutDeleteEdit (menu Delete en edit mode)
++#include "script/BindsJuego.h"
+ #include "ViewPorts/UVEditor.h"    // roles TBR_Pincel*/TBR_Grupo (toolbar del modo Weight Paint, compartidos con el UV)
+ #include "edit/WeightPaint.h"      // pincel + escritura de pesos (modo Weight Paint)
+ #include "edit/BoxSelect.h"        // B: caja de seleccion (compartida con los otros editores)
+@@ -2102,10 +2104,10 @@ void Viewport3D::Render() {
+         ra = AspectoMarco(va);
+         // en el modo juego puro (sin la UI) la inspeccion no va: el juego tal cual, sin zoom ni paneo
+         if (g_juegoPuro) { camViewZoom = 1.0f; camViewPanX = 0.0f; camViewPanY = 0.0f; }
+-        camFrameLetterbox = (CameraActive->AspectoDeclarado() > 0.01f) && g_juegoPuro != 2 && !gVistaPartida &&
++        camFrameLetterbox = !g_vistaAdaptable && (CameraActive->AspectoDeclarado() > 0.01f) && g_juegoPuro != 2 && !gVistaPartida &&
+                             (g_juegoPuro || (AnimEsJuego && (PlayAnimation || JuegoSimActiva())));
+         // jugando encuadrado o sin la UI: sin aire (el marco toca los bordes)
+-        const float margin = (camFrameLetterbox || g_juegoPuro || gVistaPartida) ? 1.0f : 0.92f;
++        const float margin = (g_vistaAdaptable || camFrameLetterbox || g_juegoPuro || gVistaPartida) ? 1.0f : 0.92f;
+         // LA cuenta del encuadre vive en main/render/EscenaRender.cpp: el runtime del
+         // juego compilado llama a la MISMA, asi el .deb/APK encuadra igual que el Play.
+         W3dEncuadreMarco(va, ra, margin, &camNX, &camNY);
+@@ -2710,7 +2712,7 @@ void Viewport3D::RenderSnapIndicador(){
+ // PASSEPARTOUT de camara: al mirar DESDE la camara, dibuja el BORDE BLANCO del render y OSCURECE afuera (0.5 negro).
+ // Lo de adentro del marco es EXACTAMENTE lo que va a salir en el render. Se adapta al viewport y al aspecto del render.
+ void Viewport3D::RenderCamPassepartout(){
+-    if (!camFrameOn) return;
++    if (!camFrameOn || g_vistaAdaptable) return;
+     namespace gfx = w3dEngine;
+     // con el JUEGO corriendo no va el borde blanco: si ademas el marco ocupa todo el viewport (el aspecto del juego
+     // es el de la pantalla) no hay nada que dibujar. Ni el 2D ni el Invalidate del final (en el N95 son ~40 llamadas
+@@ -3733,16 +3735,31 @@ void Viewport3D::RenderUI() {
+             }
+             Button* bs = BarRolBtn(BarButtons, BR_JuegoStop);
+             Button* bl = BarRolBtn(BarButtons, BR_JuegoPlay);
++            bool running = PlayAnimation;
++            const char* resumeLabel = "Play";
++#if defined(_WIN32)
++            if (W3dFtiActivo()) {
++                running = !W3dFtiPausado();
++                resumeLabel = "Reanudar";
++                if (bs) bs->text = "Reiniciar";
++                if (!BarButtons.empty()) BarButtons.front()->visible = false; // selector de tipo de panel
++                const int nativeMenus[] = { BR_View, BR_Overlays, BR_Render };
++                for (size_t i = 0; i < sizeof(nativeMenus) / sizeof(nativeMenus[0]); ++i) {
++                    Button* b = BarRolBtn(BarButtons, nativeMenus[i]);
++                    if (b) b->visible = false;
++                }
++            }
++#endif
+             if (bs) bs->visible = true;
+             if (bl) {
+                 bl->visible = true;
+                 // UN SOLO boton play/pausa: dice lo que va a HACER el click
+-                bl->text = PlayAnimation ? "Pausa" : "Play";
++                bl->text = running ? "Pausa" : resumeLabel;
+                 // verde mientras el juego CORRE (mismo estilo que Snap ON)
+                 static float playVerde[3]; const float* acc = ListaColores[static_cast<int>(ColorID::accent)];
+                 for (int i = 0; i < 3; i++) playVerde[i] = acc[i] * 0.4f;
+-                bl->tinte = PlayAnimation ? playVerde : NULL;
+-                bl->colorTexto = PlayAnimation ? acc : NULL;
++                bl->tinte = running ? playVerde : NULL;
++                bl->colorTexto = running ? acc : NULL;
+             }
+             for (size_t i = 0; i < BarButtons.size(); i++)
+                 if (BarButtons[i]->rol == BR_Overlays)
+diff --git a/platform/windows/whisk3d-utf8.manifest b/platform/windows/whisk3d-utf8.manifest
+new file mode 100644
+index 0000000..f2fff69
+--- /dev/null
++++ b/platform/windows/whisk3d-utf8.manifest
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
++<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
++  <application xmlns="urn:schemas-microsoft-com:asm.v3">
++    <windowsSettings>
++      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
++    </windowsSettings>
++  </application>
++</assembly>

@@ -1,0 +1,56 @@
+# El arnés del editor ejecuta el Lua de la escena y comprueba el estado recibido.
+abrirw3d FTI_Cruce_I5.w3d
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+esperar 200
+simplay 1
+scriptinfo compartido fti_estado PYTHON
+scriptinfo compartido fti_vehiculos 36
+scriptinfo compartido fti_modelos 11
+loadtex contex 17
+loadtex rotas 0
+ventana 1200 650
+uishot verificar-vista.png
+simplay 2
+scriptinfo compartido fti_vista barrio
+luacorrer "Barrio" local w,h=resolucion(); assert(w / h > 1.7); local f=lenteDe(buscar("Camara")); assert(math.abs(f-55) < .1)
+uishot verificar-vista.png
+ventana 520 740
+uishot verificar-vertical.png
+simplay 2
+luacorrer "Barrio" local w,h=resolucion(); assert(w / h < .8); local f=lenteDe(buscar("Camara")); assert(f > 60)
+uishot verificar-vertical.png
+luacorrer "Barrio" local o=assert(buscar("fti_base_suv")); local rx,ry,rz=rotacion(o); local x,y,z=puntoMundo(o,0,0,0); for _,a in ipairs({0,90,180,-90,34,-63}) do setRotacion(o,0,a,0); local fx,fy,fz=puntoMundo(o,0,0,1); assert(math.abs(fx-x-math.sin(math.rad(a)))<.001 and math.abs(fy-y)<.001 and math.abs(fz-z-math.cos(math.rad(a)))<.001) end; setRotacion(o,rx,ry,rz)
+luacorrer "Barrio" fti_prueba_lector=ftiLeer; ftiLeer=function() return "FTI2 9999999 8 5 barrio 50 49 RED RED RED RED 1 0 1 100 saturation adaptive 1\n" end
+simplay 150
+scriptinfo compartido fti_estado SIN_ENLACE
+scriptinfo compartido fti_vehiculos 36
+luacorrer "Barrio" ftiLeer=fti_prueba_lector
+esperar 200
+simplay 4
+scriptinfo compartido fti_estado PYTHON
+scriptinfo compartido fti_vehiculos 36
+simstop

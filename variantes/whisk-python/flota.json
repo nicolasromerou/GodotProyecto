@@ -1,0 +1,13 @@
+[
+  {"key":"suv","label":"SUV compacto","stl":"suv-compacto-blanco.stl","front_x":1,"length":4.6,"width":2.15,"color":[0.91,0.92,0.93]},
+  {"key":"pickup","label":"Pickup compacta","stl":"pickup-compacta.stl","front_x":1,"length":5.1,"width":2.2,"color":[0.76,0.39,0.20]},
+  {"key":"bus","label":"Bus urbano","stl":"bus-urbano.stl","front_x":1,"length":9.4,"width":2.5,"color":[0.21,0.54,0.63]},
+  {"key":"moto","label":"Moto","stl":"motoardilla.stl","front_x":1,"length":2.15,"width":0.85,"color":[0.72,0.15,0.23]},
+  {"key":"camaro","label":"Camaro","stl":"01_chevrolet_camaro.stl","front_x":-1,"length":4.8,"width":1.95,"color":[0.84,0.56,0.12]},
+  {"key":"interceptor","label":"Interceptor policial","stl":"02_interceptor_policial.stl","front_x":-1,"length":5.0,"width":2.0,"color":[0.23,0.32,0.48]},
+  {"key":"cyber","label":"Cyber pickup","stl":"03_cyber_pickup_4x4.stl","front_x":-1,"length":5.6,"width":2.2,"color":[0.60,0.65,0.69]},
+  {"key":"supercar","label":"Supercar GT","stl":"04_supercar_gt_blade.stl","front_x":-1,"length":4.65,"width":2.0,"color":[0.72,0.18,0.22]},
+  {"key":"furgon","label":"Furgón de reparto","stl":"05_furgon_delivery.stl","front_x":-1,"length":5.4,"width":2.05,"color":[0.84,0.86,0.81]},
+  {"key":"metrobus","label":"Bus metropolitano","stl":"06_bus_urbano_metropolitano.stl","front_x":-1,"length":9.4,"width":2.5,"color":[0.33,0.60,0.29]},
+  {"key":"muscle","label":"Fastback clásico","stl":"07_muscle_fastback_1969.stl","front_x":-1,"length":4.8,"width":1.95,"color":[0.28,0.48,0.71]}
+]

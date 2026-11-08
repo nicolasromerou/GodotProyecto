@@ -1,0 +1,44 @@
+newmtl furgon_carroceria
+Ka 0.840 0.860 0.810
+Kd 0.840 0.860 0.810
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl furgon_bajos
+Ka 0.210 0.230 0.260
+Kd 0.210 0.230 0.260
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl furgon_goma
+Ka 0.080 0.090 0.100
+Kd 0.080 0.090 0.100
+Ks 0.15 0.15 0.15
+Ns 22
+newmtl furgon_cubierta
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.15 0.15 0.15
+Ns 22
+map_Kd llanta.png
+newmtl furgon_faro
+Ka 0.950 0.920 0.730
+Kd 0.950 0.920 0.730
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl furgon_piloto
+Ka 0.680 0.090 0.120
+Kd 0.680 0.090 0.120
+Ks 0.15 0.15 0.15
+Ns 22
+NoLight
+newmtl furgon_cristal
+Ka 0.420 0.540 0.620
+Kd 0.420 0.540 0.620
+Ks 0.03 0.03 0.03
+Ns 22
+map_Kd vidrio.png
+newmtl furgon_franja
+Ka 0.780 0.830 0.780
+Kd 0.780 0.830 0.780
+Ks 0.15 0.15 0.15
+Ns 22
