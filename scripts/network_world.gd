@@ -160,12 +160,19 @@ func _refresh_external_vehicles() -> void:
 		junction.external_vehicles.clear()
 		for global_pose in vehicles:
 			if int(global_pose.junction) == index: continue
-			var delta := Vector2(float(global_pose.x), float(global_pose.z)) - centers[index]
+			var delta := _torus_delta(Vector2(float(global_pose.x), float(global_pose.z)) - centers[index])
 			if absf(delta.x) < 195.0 and absf(delta.y) < 195.0:
 				var local: Dictionary = global_pose.duplicate()
 				local.x = delta.x
 				local.z = delta.y
 				junction.external_vehicles.append(local)
+
+## La red es un toro de 3 × 3: quien sale por un borde entra por el opuesto. Esta
+## función lleva una diferencia de posiciones al camino más corto sobre ese toro,
+## para que los cruces del borde también vean a los vecinos del otro lado.
+func _torus_delta(delta: Vector2) -> Vector2:
+	var half: float = SPACING * 1.5
+	return Vector2(wrapf(delta.x, -half, half), wrapf(delta.y, -half, half))
 
 func tick(dt: float) -> void:
 	if dt <= 0.0 or dt > 0.1: return
@@ -199,16 +206,16 @@ func _transfer(index: int, vehicle: Dictionary) -> void:
 	var wrapped: bool = next_col < 0 or next_col > 2 or next_row < 0 or next_row > 2
 	var target: int = posmod(next_row, 3) * 3 + posmod(next_col, 3)
 	var candidate: Dictionary = vehicle.duplicate()
-	if wrapped:
-		var pose: Dictionary = junctions[target].straight_pose(heading, -104.8)
-		candidate.x = pose.x
-		candidate.z = pose.z
-		candidate.yaw = pose.yaw
-	else:
-		candidate.x = float(vehicle.x) + centers[index].x - centers[target].x
-		candidate.z = float(vehicle.z) + centers[index].y - centers[target].y
+	# Misma posición física vista desde el cruce de destino, también al dar la
+	# vuelta por el borde: el coche no salta hacia delante ni hacia atrás.
+	var local: Vector2 = _torus_delta(Vector2(float(vehicle.x), float(vehicle.z)) + centers[index] - centers[target])
+	candidate.x = local.x
+	candidate.z = local.y
+	# El margen debe ser menor que la separación lateral entre carriles opuestos
+	# (1,3 m entre dos buses). Con 2 m, una cola del sentido contrario impedía el
+	# traspaso y el coche seguía avanzando dentro del sector vecino sin pertenecerle.
 	for other in junctions[target].vehicles:
-		if Math.overlap(candidate, other, 2.0):
+		if Math.overlap(candidate, other, 0.1):
 			vehicle.speed = 0.0
 			junctions[index].vehicles.append(vehicle)
 			return

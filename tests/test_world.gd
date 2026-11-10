@@ -63,6 +63,8 @@ func _run() -> void:
 		shared_green = shared_green or (bool(northbound.turning) and bool(southbound.turning))
 		no_conflict = no_conflict and no_overlaps(world)
 	check(shared_green and no_conflict and int(world.statistics.crossings) >= 2, "Dos flujos rectos opuestos comparten el verde adaptativo sin colisiones")
+	# reset() conserva el modo elegido; la prueba anterior dejó el adaptativo.
+	world.set_mode("fti")
 	world.reset(false)
 	advance(world, 30.0)
 	check(world.controller.stage == "ALL_RED" and world.vehicles.is_empty(), "FTI sin vehículos permanece todo rojo")

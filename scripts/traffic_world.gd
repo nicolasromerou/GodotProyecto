@@ -206,7 +206,7 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 			if stop_for_light and reservation == int(vehicle.id):
 				reservation = -1
 			var turning_route: bool = int(vehicle.planned_turn) != 0
-			if turning_route and not stop_for_light and reservation == -1 and front_gap < 12.0 and not is_occupied() and not _exit_blocked(vehicle):
+			if turning_route and not stop_for_light and reservation == -1 and front_gap < 12.0 and not is_occupied() and not _someone_committed() and not _exit_blocked(vehicle):
 				reservation = int(vehicle.id)
 			var reservation_blocked: bool = reservation != int(vehicle.id) if turning_route else reservation != -1
 			var blocked: bool = stop_for_light or reservation_blocked or _exit_blocked(vehicle)
@@ -223,7 +223,10 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		candidate.x = pose.x
 		candidate.z = pose.z
 		candidate.yaw = pose.yaw
-	elif not vehicle.cleared and distance >= turn_entry and distance - float(motion.distance) < turn_entry and _has_entry_reservation(vehicle):
+	# Quien ya se comprometió entra aunque otro haya reservado después: si no tomara
+	# la trayectoria del cruce seguiría recto sin marcarse como despejado y nunca
+	# pasaría al cruce siguiente.
+	elif not vehicle.cleared and distance >= turn_entry and distance - float(motion.distance) < turn_entry and (bool(vehicle.committed) or _has_entry_reservation(vehicle)):
 		candidate.turning = true
 		candidate.turn_path = road_profile.turn_path(int(vehicle.heading), int(vehicle.planned_turn)) if road_profile != null else Math.make_turn_path(int(vehicle.heading), int(vehicle.planned_turn), LANE_OFFSET, turn_entry)
 		candidate.turn_distance = maxf(0.0, float(motion.distance) - (distance - turn_entry))
@@ -265,6 +268,15 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 		vehicle.steering_angle = 0.0
 		statistics.crossings += 1
 	statistics.max_step = maxf(float(statistics.max_step), previous.distance_to(Vector2(float(vehicle.x), float(vehicle.z))))
+
+## Un giro reserva el cruce para él solo. No puede hacerlo si un vehículo recto ya
+## cruzó la línea de detención y todavía no sale: is_occupied() no lo ve hasta que
+## entra en la zona de conflicto, y en ese intervalo ambos entraban a la vez.
+func _someone_committed() -> bool:
+	for vehicle: Dictionary in vehicles:
+		if bool(vehicle.committed) and not bool(vehicle.cleared):
+			return true
+	return false
 
 func _has_entry_reservation(vehicle: Dictionary) -> bool:
 	if int(vehicle.planned_turn) != 0:

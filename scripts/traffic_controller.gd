@@ -144,7 +144,9 @@ func step(dt: float, occupied: bool = false) -> void:
 			other -= current
 			end_turn = end_turn or (elapsed >= 6.5 and other > current + 1.0)
 			end_turn = end_turn or (elapsed >= 4.0 and current == 0.0 and other > 0.0)
-			end_turn = end_turn or (elapsed >= 6.5 and not priority.is_empty() and priority != last_axis)
+			# La prioridad solo corta el verde si su eje tiene vehículos: sin esa condición
+			# se gastaba un amarillo y un despeje para volver al mismo eje.
+			end_turn = end_turn or (elapsed >= 6.5 and priority != last_axis and _priority_has_demand())
 		if end_turn:
 			stage = "YELLOW"
 			elapsed = 0.0

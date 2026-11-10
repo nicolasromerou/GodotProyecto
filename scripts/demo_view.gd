@@ -627,7 +627,7 @@ func _stop_python_coordinator(message: String) -> void:
 		coordinator_status.text = message
 
 func _update_python_coordinator() -> void:
-	if not coordinator_active or coordinator_request_in_flight or world.simulation_time < coordinator_next_request_time:
+	if not coordinator_active or paused or comparing or coordinator_request_in_flight or world.simulation_time < coordinator_next_request_time:
 		return
 	coordinator_next_request_time = world.simulation_time + 2.5
 	coordinator_request_in_flight = true
@@ -653,7 +653,9 @@ func _finish_python_coordinator(generation: int, exit_code: int, response: Strin
 		coordinator_thread.wait_to_finish()
 	coordinator_thread = null
 	coordinator_request_in_flight = false
-	if generation != coordinator_generation or not coordinator_active:
+	# Una respuesta que llega con la red en pausa o durante la comparación se descarta:
+	# aplicarla cambiaría prioridades y eventos de una simulación que debe quedar intacta.
+	if generation != coordinator_generation or not coordinator_active or paused or comparing:
 		return
 	if exit_code != 0:
 		_stop_python_coordinator("Python no pudo calcular prioridades (código %d): %s" % [exit_code, response.strip_edges()])
