@@ -178,8 +178,8 @@ func _build_signals() -> void:
 			lights.append(bulb)
 		lamps[approach] = lights
 
-func _car_node(id: int) -> Node3D:
-	var root: Node3D = FleetVisual.create_vehicle(id)
+func _car_node(id: int, model_key: String = "") -> Node3D:
+	var root: Node3D = FleetVisual.create_vehicle(id, model_key)
 	add_child(root)
 	return root
 
@@ -189,7 +189,7 @@ func _sync_cars() -> void:
 		var id: int = int(vehicle.id)
 		alive[id] = true
 		if not car_nodes.has(id):
-			car_nodes[id] = _car_node(id)
+			car_nodes[id] = _car_node(id, String(vehicle.get("model", "")))
 			car_nodes[id].position = Vector3(vehicle.x, 0.0, vehicle.z)
 			car_nodes[id].rotation.y = vehicle.yaw
 			car_nodes[id].reset_physics_interpolation()

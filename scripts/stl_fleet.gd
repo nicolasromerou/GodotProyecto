@@ -56,11 +56,12 @@ static func mesh_for(spec: Dictionary) -> ArrayMesh:
 	cache[spec.key] = mesh
 	return mesh
 
-static func create_vehicle(id: int) -> Node3D:
+## `model_key` es el modelo que el núcleo asignó al vehículo; vacío usa el reparto por id.
+static func create_vehicle(id: int, model_key: String = "") -> Node3D:
 	var root := Node3D.new()
 	root.name = "Vehicle_%d" % id
 	var instance := MeshInstance3D.new()
-	instance.mesh = mesh_for(Catalog.for_id(id))
+	instance.mesh = mesh_for(Catalog.for_id(id) if model_key.is_empty() else Catalog.for_key(model_key))
 	instance.position.y = 0.05
 	# The STL front points opposite to the +Z-forward traffic poses.
 	instance.rotation.y = PI

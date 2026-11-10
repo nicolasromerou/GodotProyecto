@@ -23,6 +23,11 @@ var pedestrian_pending: bool = false
 var clearance: float = 1.0
 var fallback: bool = false
 var reason: String = "Esperando demanda"
+## Motivo del último corte de verde, con los códigos del contrato de ingesta (RF3):
+## sin_demanda, verde_maximo, balance_colas, prioridad, tiempo_fijo o cambio_modo.
+## Se fija al pasar a amarillo. No entra en snapshot() para conservar la paridad
+## con el controlador JavaScript original.
+var cut_reason: String = ""
 
 func _init(selected_mode: String = "fti") -> void:
 	mode = selected_mode
@@ -77,6 +82,7 @@ func step(dt: float, occupied: bool = false) -> void:
 		stage = "YELLOW"
 		elapsed = 0.0
 		reason = "Transición de modo"
+		cut_reason = "cambio_modo"
 	if stage == "YELLOW":
 		if elapsed >= yellow_duration():
 			stage = "ALL_RED"
@@ -134,6 +140,9 @@ func step(dt: float, occupied: bool = false) -> void:
 		return
 	if stage == "GREEN":
 		var end_turn: bool = elapsed >= green_duration()
+		# Fijo, respaldo y FTI solo cortan por tiempo. En adaptativo el verde máximo
+		# manda sobre los demás motivos, que se revisan del más al menos informativo.
+		var why: String = "verde_maximo" if running_mode == "adaptive" else "tiempo_fijo"
 		if running_mode == "adaptive":
 			var current: float = 0.0
 			for approach in active:
@@ -142,15 +151,19 @@ func step(dt: float, occupied: bool = false) -> void:
 			for queue in queues:
 				other += queue
 			other -= current
-			end_turn = end_turn or (elapsed >= 6.5 and other > current + 1.0)
-			end_turn = end_turn or (elapsed >= 4.0 and current == 0.0 and other > 0.0)
+			var no_demand: bool = elapsed >= 4.0 and current == 0.0 and other > 0.0
+			var unbalanced: bool = elapsed >= 6.5 and other > current + 1.0
 			# La prioridad solo corta el verde si su eje tiene vehículos: sin esa condición
 			# se gastaba un amarillo y un despeje para volver al mismo eje.
-			end_turn = end_turn or (elapsed >= 6.5 and priority != last_axis and _priority_has_demand())
+			var prioritized: bool = elapsed >= 6.5 and priority != last_axis and _priority_has_demand()
+			if not end_turn:
+				why = "sin_demanda" if no_demand else "balance_colas" if unbalanced else "prioridad"
+			end_turn = end_turn or no_demand or unbalanced or prioritized
 		if end_turn:
 			stage = "YELLOW"
 			elapsed = 0.0
 			reason = "Fin de turno: amarillo"
+			cut_reason = why
 
 func _priority_has_demand() -> bool:
 	if not GROUPS.has(priority):

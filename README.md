@@ -22,6 +22,8 @@ Importa `project.godot` en Godot y pulsa **F5**. Los recursos están incluidos. 
 - **Coordinador local en Python:** cada 2,5 s analiza colas, esperas y congestión aguas abajo de los nueve cruces, y pide prioridades adaptativas sin saltarse las transiciones seguras. Requiere Python 3; no usa Internet ni controla hardware.
 - **Comparación de algoritmos:** ejecuta los tres modos durante 120 s con la misma flota y escenario en una red independiente. Conserva la demo visible y permite cancelar.
 - **Telemetría y exportación:** historial de demanda, registro de eventos, métricas CSV, configuración JSON y CSV de comparación.
+- **Envío a la web:** el cruce central I-5 se informa al panel web como `maqueta-01`: un latido por segundo, cada cambio de etapa con el motivo del corte y el conteo por minuto, acceso y tipo de vehículo. Si la web no responde, los datos esperan en una cola local y se reenvían. Solo se informa a velocidad ×1, porque las fechas usan el reloj real. Ver [Envío a la web](#envío-a-la-web).
+- **Demanda abierta:** el escenario «Demanda abierta · perfil horario» deja de reciclar la flota. Los vehículos llegan por las 12 entradas del borde con llegadas aleatorias de semilla fija (70 % autos, 22 % camionetas, 8 % buses) y salen por el borde opuesto. La intensidad sigue la hora local del equipo, con puntas de mañana y tarde.
 - **Calle reconstruida desde el PNG:** avenida norte dividida, mediana arbolada, bordillos curvos, cebras y doble amarilla, con rutas y sensores alineados.
 - **Entorno urbano:** edificios bajos con fachadas, jardines, estacionamientos, árboles, farolas y bancos.
 - **Vista libre, seguimiento y vista de red**, transparencia opcional, zonas de detección, volúmenes de colisión y presentación sin interfaz con F2.
@@ -49,6 +51,7 @@ godot --headless --path . --script res://tests/test_demo.gd
 godot --headless --path . --script res://tests/test_fleet.gd
 godot --headless --path . --script res://tests/test_road_profile.gd
 godot --headless --path . --script res://tests/test_reference_scene.gd
+godot --headless --path . --script res://tests/test_ingest.gd
 ```
 
 El puente MCP y sus pruebas requieren Python 3.10 o posterior, sin paquetes adicionales:
@@ -60,6 +63,18 @@ python -m unittest tests.test_traffic_coordinator
 
 Si Godot no está en `PATH`, define `GODOT_PATH` con el ejecutable principal. En PowerShell puedes ejecutar los comandos directos con `& $env:GODOT_PATH`.
 
+## Envío a la web
+
+La maqueta envía los datos del cruce I-5 a la ruta `/api/ingesta` del panel web. El contrato completo está en `docs/api-ingesta.md` del repositorio de la web.
+
+1. Copia `.env.example` como `.env` en esta carpeta.
+2. Completa `INGESTA_URL` con la dirección de la web y `INGESTA_TOKEN` con el token que entrega quien la administra.
+3. Abre la demo. La pestaña **Datos** muestra el estado del envío.
+
+El archivo `.env` está en `.gitignore` y el token nunca se escribe en pantalla ni en los registros. La dirección debe usar `https`, salvo que la web corra en este mismo equipo. Sin configuración, la maqueta funciona igual y no envía nada.
+
+La web no envía órdenes de vuelta: su respuesta solo dice si guardó el lote. Si responde que el token o el cruce no corresponden, el envío se detiene hasta corregir la configuración y la cola se conserva.
+
 ## Código
 
 | Archivo | Responsabilidad |
@@ -69,6 +84,8 @@ Si Godot no está en `PATH`, define `GODOT_PATH` con el ejecutable principal. En
 | `scripts/network_world.gd` | Nueve cruces, demanda manual, transferencias, métricas y exportación. |
 | `scripts/demo_view.gd` | Interfaz, ciudad, coordinación local Python, cámaras y diagnóstico. |
 | `tools/traffic_coordinator.py` | Prioridades por demanda, espera y colas aguas abajo; biblioteca estándar de Python. |
+| `scripts/ingest_batcher.gd` | Arma los lotes para la web: latido, eventos con motivo, conteos por minuto y cola pendiente. Sin nodos ni red. |
+| `scripts/ingest_client.gd` | Envía los lotes por HTTP, reintenta y guarda la cola en disco. |
 | `scripts/traffic_math.gd` | Trayectorias por distancia de arco y comprobaciones SAT. |
 | `scripts/fleet_catalog.gd` | Rutas, dimensiones y colores compartidos por vista y tráfico. |
 | `scripts/stl_fleet.gd` | Lectura y normalización de los STL originales. |

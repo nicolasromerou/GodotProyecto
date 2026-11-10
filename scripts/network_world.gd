@@ -4,7 +4,19 @@ extends RefCounted
 const Junction = preload("res://scripts/traffic_world.gd")
 const Math = preload("res://scripts/traffic_math.gd")
 const SPACING: float = 210.0
-const SCENARIOS = ["normal", "peak_ns", "peak_ew", "empty"]
+const SCENARIOS = ["normal", "peak_ns", "peak_ew", "empty", "open"]
+## Escenario "open": la red deja de ser un circuito cerrado. Los vehículos llegan por
+## las 12 entradas del borde según un proceso aleatorio con semilla y salen por el
+## borde opuesto. Así la demanda varía en el tiempo y las estadísticas tienen forma.
+## Llegadas por segundo y por entrada cuando el multiplicador vale 1 (hora punta).
+const OPEN_BASE_RATE: float = 0.03
+## Llegadas que una entrada bloqueada puede dejar en espera antes de descartarlas.
+const OPEN_BACKLOG_LIMIT: int = 4
+## Proporción de la demanda por hora del día (0 a 23) respecto de la hora punta.
+## Son valores de simulación con dos puntas, mañana y tarde; no provienen de un aforo.
+const HOURLY_PROFILE = [0.10, 0.06, 0.05, 0.05, 0.08, 0.20, 0.45, 0.90, 1.00, 0.75, 0.60, 0.62, 0.70, 0.72, 0.62, 0.60, 0.68, 0.85, 1.00, 0.90, 0.60, 0.40, 0.25, 0.15]
+## Reparto de tipos en las llegadas: 70 % auto, 22 % camioneta, 8 % bus.
+const OPEN_MIX = [["suv", 0.70], ["pickup", 0.92], ["bus", 1.0]]
 var junctions: Array = []
 var centers: Array[Vector2] = []
 var vehicles: Array = []
@@ -20,6 +32,16 @@ var priority_until: Array = []
 var next_sample: float = 1.0
 var transfers: int = 0
 var wraps: int = 0
+var open_network: bool = false
+## Misma semilla, mismas llegadas: el escenario abierto se puede repetir.
+var demand_seed: int = 20261110
+## Lo fija quien usa la red (la vista, según la hora local). El núcleo no lee el reloj.
+var demand_multiplier: float = 1.0
+var arrivals: int = 0
+var exits: int = 0
+var rejected_arrivals: int = 0
+var entry_backlog: Array[int] = []
+var rng := RandomNumberGenerator.new()
 var controller:
 	get: return junctions[selected].controller
 var sensor_enabled: bool = true:
@@ -47,6 +69,12 @@ func load_scenario(key: String) -> bool:
 	next_sample = 1.0
 	transfers = 0
 	wraps = 0
+	open_network = key == "open"
+	arrivals = 0
+	exits = 0
+	rejected_arrivals = 0
+	entry_backlog.assign([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+	rng.seed = demand_seed
 	sensor_enabled = true
 	for index in range(9):
 		var junction = Junction.new(false)
@@ -171,6 +199,8 @@ func _refresh_external_vehicles() -> void:
 ## función lleva una diferencia de posiciones al camino más corto sobre ese toro,
 ## para que los cruces del borde también vean a los vecinos del otro lado.
 func _torus_delta(delta: Vector2) -> Vector2:
+	# En la red abierta los bordes no se conectan: no hay vecinos del otro lado.
+	if open_network: return delta
 	var half: float = SPACING * 1.5
 	return Vector2(wrapf(delta.x, -half, half), wrapf(delta.y, -half, half))
 
@@ -192,6 +222,7 @@ func tick(dt: float) -> void:
 	for index in range(9):
 		for vehicle in junctions[index].departed_vehicles:
 			_transfer(index, vehicle)
+	if open_network: _spawn_arrivals(dt)
 	_refresh_vehicles()
 	if simulation_time + 0.000001 >= next_sample:
 		_sample()
@@ -204,6 +235,9 @@ func _transfer(index: int, vehicle: Dictionary) -> void:
 	var next_col: int = col + [0, 1, 0, -1][heading]
 	var next_row: int = row + [1, 0, -1, 0][heading]
 	var wrapped: bool = next_col < 0 or next_col > 2 or next_row < 0 or next_row > 2
+	if wrapped and open_network:
+		exits += 1
+		return
 	var target: int = posmod(next_row, 3) * 3 + posmod(next_col, 3)
 	var candidate: Dictionary = vehicle.duplicate()
 	# Misma posición física vista desde el cruce de destino, también al dar la
@@ -220,6 +254,7 @@ func _transfer(index: int, vehicle: Dictionary) -> void:
 			junctions[index].vehicles.append(vehicle)
 			return
 	candidate.cleared = false
+	candidate.counted = false
 	candidate.committed = false
 	candidate.turning = false
 	candidate.turn_path = {}
@@ -228,6 +263,41 @@ func _transfer(index: int, vehicle: Dictionary) -> void:
 	junctions[target].vehicles.append(candidate)
 	transfers += 1
 	if wrapped: wraps += 1
+
+## Las 12 entradas del borde, en orden fijo: sentido de marcha 0 (hacia el sur) por
+## la fila norte, 1 (hacia el este) por la columna oeste, 2 por la fila sur y 3 por
+## la columna este. Devuelve pares [cruce, sentido].
+func _entries() -> Array:
+	var result: Array = []
+	for slot in range(3):
+		result.append([slot, 0])
+		result.append([slot * 3, 1])
+		result.append([6 + slot, 2])
+		result.append([slot * 3 + 2, 3])
+	return result
+
+func _spawn_arrivals(dt: float) -> void:
+	var entries: Array = _entries()
+	var chance: float = OPEN_BASE_RATE * clampf(demand_multiplier, 0.0, 2.0) * dt
+	for slot in range(entries.size()):
+		# Llegadas de Poisson: en un paso corto, la probabilidad de una llegada es tasa × dt.
+		if rng.randf() < chance:
+			if entry_backlog[slot] < OPEN_BACKLOG_LIMIT: entry_backlog[slot] += 1
+			else: rejected_arrivals += 1
+		if entry_backlog[slot] == 0: continue
+		# Los tres sorteos se hacen siempre, quepa o no el vehículo, para que la
+		# secuencia aleatoria no dependa de si la entrada estaba ocupada.
+		var draw: float = rng.randf()
+		var turn: int = [0, 1, 0, -1, 0][rng.randi_range(0, 4)]
+		var model: String = "suv"
+		for option in OPEN_MIX:
+			if draw <= float(option[1]):
+				model = option[0]
+				break
+		var junction = junctions[int(entries[slot][0])]
+		if not junction.create_vehicle(int(entries[slot][1]), 100.0, turn, model).is_empty():
+			entry_backlog[slot] -= 1
+			arrivals += 1
 
 func metrics() -> Dictionary:
 	var total_speed: float = 0.0
@@ -246,7 +316,7 @@ func metrics() -> Dictionary:
 		crossings += int(junction.statistics.crossings)
 		turns += int(junction.statistics.turns)
 		blocked += int(junction.statistics.blocked_moves)
-	return {"vehicles": vehicles.size(), "speed_kmh": total_speed / maxf(1.0, vehicles.size()), "queued": queued, "mean_wait": total_wait / maxf(1.0, vehicles.size()), "crossings": crossings, "turns": turns, "incidents": incidents, "blocked_moves": blocked, "transfers": transfers}
+	return {"vehicles": vehicles.size(), "speed_kmh": total_speed / maxf(1.0, vehicles.size()), "queued": queued, "mean_wait": total_wait / maxf(1.0, vehicles.size()), "crossings": crossings, "turns": turns, "incidents": incidents, "blocked_moves": blocked, "transfers": transfers, "arrivals": arrivals, "exits": exits, "rejected_arrivals": rejected_arrivals}
 
 func _sample() -> void:
 	var summary: Dictionary = metrics()

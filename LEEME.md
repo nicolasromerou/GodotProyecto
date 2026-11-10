@@ -27,4 +27,4 @@ La circulación usa un carril activo por sentido y reserva exclusiva por cruce. 
 
 Los archivos STL originales se conservan en `modelosBlec/`. El catálogo `scripts/fleet_catalog.gd` comparte medidas entre la vista y la lógica. Para incorporar futuros modelos, añade su STL binario y una entrada de catálogo, y verifica tamaño y orientación.
 
-El [puente MCP](CONEXION-MCP.md) requiere Python 3.10 o posterior y es opcional. Permite validar, ejecutar las siete suites y consultar simulaciones independientes. No controla una ventana del editor abierta ni se registra automáticamente en el cliente.
+El [puente MCP](CONEXION-MCP.md) requiere Python 3.10 o posterior y es opcional. Permite validar, ejecutar las ocho suites y consultar simulaciones independientes. No controla una ventana del editor abierta ni se registra automáticamente en el cliente.

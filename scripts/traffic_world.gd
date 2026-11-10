@@ -28,6 +28,10 @@ var stop_line: float = STOP_LINE
 var turn_entry: float = 16.5
 var conflict_size: float = 28.0
 var release_distance: float = 24.0
+## Vehículos que cruzaron la línea de detención, acumulados por "acceso|tipo"
+## (por ejemplo "N|auto"). Es el conteo de RF1: quien lo consume resta el valor
+## anterior, así que no hay que vaciarlo en cada paso.
+var stop_line_counts: Dictionary = {}
 
 func configure_profile(is_central: bool = false) -> void:
 	road_profile = RoadProfile.new(is_central)
@@ -60,7 +64,8 @@ func reset(populate: bool = true) -> void:
 	auto_spawn = populate
 	reservation = -1
 	next_id = 1
-	statistics = {"turns": 0, "crossings": 0, "departures": 0, "spawned": 0, "blocked_moves": 0, "max_step": 0.0}
+	stop_line_counts = {}
+	statistics = {"turns": 0, "crossings": 0, "departures": 0, "spawned": 0, "blocked_moves": 0, "max_step": 0.0, "stop_line_crossings": 0}
 	if populate:
 		for distance: float in [35.0, 53.0, 71.0]:
 			for heading in range(4):
@@ -73,14 +78,16 @@ func set_mode(mode: String) -> bool:
 	controller.mode = mode
 	return true
 
-func create_vehicle(heading: int, distance: float, planned_turn: int = 0) -> Dictionary:
+## `model_key` elige el modelo del catálogo; vacío conserva el reparto por id.
+func create_vehicle(heading: int, distance: float, planned_turn: int = 0, model_key: String = "") -> Dictionary:
 	heading = posmod(heading, 4)
 	var pose: Dictionary = straight_pose(heading, -distance)
 	var vehicle: Dictionary = {"id": next_id, "x": pose.x, "z": pose.z, "yaw": pose.yaw, "heading": heading, "origin_heading": heading, "length": 4.8, "width": 2.0, "speed": 0.0, "acceleration": 0.0, "desired_speed": 12.0 + float(next_id % 3), "planned_turn": clampi(planned_turn, -1, 1), "turning": false, "turn_path": {}, "turn_distance": 0.0, "committed": false, "cleared": false, "braking": true, "wheel_distance": 0.0, "steering_angle": 0.0}
-	var spec: Dictionary = Fleet.for_id(next_id)
+	var spec: Dictionary = Fleet.for_id(next_id) if model_key.is_empty() else Fleet.for_key(model_key)
 	vehicle.length = spec.length
 	vehicle.width = spec.width
 	vehicle.model = spec.key
+	vehicle.tipo = spec.tipo
 	for other: Dictionary in vehicles + external_vehicles:
 		if Math.overlap(vehicle, other, 2.0):
 			return {}
@@ -255,6 +262,12 @@ func _update_vehicle(vehicle: Dictionary, dt: float) -> void:
 	var old_yaw: float = float(vehicle.yaw)
 	for key: String in ["x", "z", "yaw", "turning", "turn_path", "turn_distance", "committed"]:
 		vehicle[key] = candidate[key]
+	# RF1: se cuenta una vez, cuando el parachoques delantero pasa la línea de detención.
+	if not bool(vehicle.cleared) and not bool(vehicle.get("counted", false)) and distance - float(motion.distance) - float(vehicle.length) * 0.5 < stop_line:
+		vehicle.counted = true
+		var counter: String = "%s|%s" % [APPROACH_FOR_HEADING[int(vehicle.heading)], String(vehicle.get("tipo", "auto"))]
+		stop_line_counts[counter] = int(stop_line_counts.get(counter, 0)) + 1
+		statistics.stop_line_crossings += 1
 	vehicle.speed = motion.speed
 	vehicle.acceleration = motion.acceleration
 	vehicle.braking = float(motion.acceleration) < -1.0 or float(motion.speed) < 0.2

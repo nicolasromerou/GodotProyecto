@@ -3,6 +3,9 @@ extends "res://scripts/main.gd"
 const Network = preload("res://scripts/network_world.gd")
 const Catalog = preload("res://scripts/fleet_catalog.gd")
 const Chart = preload("res://scripts/demand_chart.gd")
+const IngestClient = preload("res://scripts/ingest_client.gd")
+## Cruce que se informa a la web como maqueta-01: el central, I-5.
+const REPORTED_JUNCTION: int = 4
 var city_root: Node3D
 var sensor_root: Node3D
 var street_info: Dictionary = {}
@@ -58,7 +61,9 @@ var coordinator_generation: int = 0
 var coordinator_previous_mode: String = ""
 var coordinator_next_request_time: float = 0.0
 var coordinator_thread: Thread
-var scenario_names = ["Normal · 36 vehículos", "Hora punta Norte–Sur · 54", "Hora punta Este–Oeste · 54", "Sin demanda · todo rojo"]
+var ingest: Node
+var ingest_status: Label
+var scenario_names = ["Normal · 36 vehículos", "Hora punta Norte–Sur · 54", "Hora punta Este–Oeste · 54", "Sin demanda · todo rojo", "Demanda abierta · perfil horario"]
 
 func _ready() -> void:
 	world = Network.new()
@@ -67,6 +72,8 @@ func _ready() -> void:
 	camera.near = 1.0
 	_build_city()
 	_build_hud()
+	ingest = IngestClient.new()
+	add_child(ingest)
 	_sync_cars()
 	_select_cross(4)
 	_update_hud()
@@ -107,6 +114,9 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	hud_clock += delta
 	_update_python_coordinator()
+	# El latido sigue en pausa (las luces están congeladas, no caídas). A otra velocidad
+	# o durante un ensayo no se informa, porque las fechas usan el reloj real.
+	ingest.update(world.junctions[REPORTED_JUNCTION], is_equal_approx(time_scale, 1.0) and not comparing)
 	if hud_clock >= 0.15:
 		hud_clock = 0.0
 		_update_hud()
@@ -257,10 +267,10 @@ func _update_zones() -> void:
 		sensor_root.add_child(zone)
 	sensor_root.visible = zones_enabled
 
-func _car_node(id: int) -> Node3D:
-	var root: Node3D = FleetVisual.create_vehicle(id)
+func _car_node(id: int, model_key: String = "") -> Node3D:
+	var root: Node3D = FleetVisual.create_vehicle(id, model_key)
 	city_root.add_child(root)
-	var spec: Dictionary = Catalog.for_id(id)
+	var spec: Dictionary = Catalog.for_id(id) if model_key.is_empty() else Catalog.for_key(model_key)
 	var debug_material := _material(Color(0.2, 0.95, 0.9, 0.15))
 	debug_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	var debug := _box(root, Vector3(spec.width, 1.7, spec.length), Vector3(0, 0.85, 0), debug_material)
@@ -453,6 +463,8 @@ func _build_hud() -> void:
 	_button(fleet, "Inspeccionar modelos", _open_inspector)
 	_text(fleet, "Botón derecho: orbitar. Rueda: zoom. Inicio: centrar. Espacio: pausa. F1: panel. F2: presentación sin interfaz.", 14)
 	var data: VBoxContainer = _section(tabs, "Datos")
+	_text(data, "ENVÍO A LA WEB · CRUCE I-5", 13)
+	ingest_status = _text(data, "", 13)
 	_text(data, "TELEMETRÍA · 9 CRUCES", 13)
 	_button(data, "Guardar métricas CSV", func(): _ask_export("csv"))
 	_button(data, "Guardar configuración JSON", func(): _ask_export("json"))
@@ -550,6 +562,11 @@ func _update_hud() -> void:
 	var summary: Dictionary = world.metrics()
 	metrics_label.text = "T+%.0f s   ·   %d vehículos   ·   %.0f km/h   ·   %d en cola   ·   %d cruces   ·   %d incidentes" % [world.simulation_time, summary.vehicles, summary.speed_kmh, summary.queued, summary.crossings, summary.incidents]
 	event_label.text = "\n".join(world.events.slice(0, 30))
+	if ingest != null and ingest_status != null: ingest_status.text = ingest.status
+	if world.open_network:
+		# La demanda abierta sigue la hora local del equipo; el núcleo no lee el reloj.
+		world.demand_multiplier = Network.HOURLY_PROFILE[int(Time.get_datetime_dict_from_system().hour)]
+		metrics_label.text += "   ·   demanda %d %%   ·   %d llegadas / %d salidas" % [roundi(world.demand_multiplier * 100.0), summary.arrivals, summary.exits]
 	for key in lamps:
 		var node: int = int(key / 4)
 		var approach: String = ["N", "E", "S", "W"][key % 4]

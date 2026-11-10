@@ -49,7 +49,7 @@ La espera mostrada en el CSV y el comparador es el tiempo detenido acumulado med
 - Perfil vial: 13 pruebas de rutas, bus sobre el asfalto, sensores y regresión de seguimiento.
 - Diseño de referencia: 14 pruebas de geometría, entorno, transparencia y presentación.
 - Flota: tres STL, tamaños, apoyo, caché de mallas y correspondencia con los volúmenes lógicos.
-- MCP: 11 pruebas del ejecutor/protocolo e integración real de las siete suites. Las instantáneas de la red se leen completas aunque se recorten los registros.
+- MCP: 11 pruebas del ejecutor/protocolo e integración real de las ocho suites. Las instantáneas de la red se leen completas aunque se recorten los registros.
 - Coordinador Python: seis pruebas de colas, espera, bloqueo aguas abajo, estabilidad de eje, sensores fallidos y entradas inválidas.
 
 Los ensayos no cubren todas las combinaciones posibles de demanda. Se conserva un modelo de circulación conservador con un carril por sentido y paso exclusivo por cruce.
