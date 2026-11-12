@@ -82,14 +82,23 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-json", required=True, help="Instantánea resumida de las nueve intersecciones")
+    entrada = parser.add_mutually_exclusive_group(required=True)
+    # Godot usa --input-file: en Windows, al pasar el JSON como argumento, el sistema
+    # le quita las comillas internas y Python recibe un texto que ya no es JSON.
+    entrada.add_argument("--input-file", help="Archivo UTF-8 con la instantánea de las nueve intersecciones")
+    entrada.add_argument("--input-json", help="Instantánea como texto JSON; útil para probar desde una terminal")
     args = parser.parse_args()
     try:
-        payload = json.loads(args.input_json)
+        if args.input_file is not None:
+            with open(args.input_file, encoding="utf-8") as archivo:
+                texto = archivo.read()
+        else:
+            texto = args.input_json
+        payload = json.loads(texto)
         if not isinstance(payload, dict):
             raise ValueError("La entrada debe ser un objeto JSON")
         print(json.dumps(plan(payload), separators=(",", ":"), allow_nan=False))
-    except (json.JSONDecodeError, ValueError) as error:
+    except (json.JSONDecodeError, ValueError, OSError) as error:
         parser.error(str(error))
 
 

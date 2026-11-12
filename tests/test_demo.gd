@@ -84,6 +84,19 @@ func _run() -> void:
 	check(JSON.stringify(scene.world.snapshot()) == before_comparison and scene.paused, "Cancelar ensayo también conserva la simulación")
 	scene.reference_panel.show()
 	check(scene.reference_panel.visible, "Plano de referencia disponible")
+	# Ejecuta el coordinador Python de verdad, como lo hace la demo. Antes ninguna prueba
+	# lo llamaba y en Windows fallaba siempre por las comillas del JSON.
+	check(scene.coordinator_active, "El coordinador sigue activo antes de consultarlo")
+	scene.paused = false
+	scene.coordinator_next_request_time = 0.0
+	scene._update_python_coordinator()
+	var started: bool = scene.coordinator_request_in_flight
+	var waited: int = 0
+	while scene.coordinator_request_in_flight and waited < 600:
+		await process_frame
+		waited += 1
+	scene.paused = true
+	check(started and scene.coordinator_active and scene.coordinator_status.text.begins_with("Python activo"), "El coordinador Python responde y su plan se aplica")
 	scene._stop_python_coordinator("Prueba finalizada.")
 	scene.queue_free()
 	await process_frame

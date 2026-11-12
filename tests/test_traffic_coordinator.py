@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Focused tests for the local traffic-priority planner."""
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from tools.traffic_coordinator import plan
+
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "traffic_coordinator.py")
 
 
 def junction(identifier, counts=None, queues=None, wait=None, downstream=None, **extra):
@@ -61,6 +68,24 @@ class TrafficCoordinatorTests(unittest.TestCase):
             plan(duplicate)
         with self.assertRaises(ValueError):
             plan(self.network(junction(1, previous_axis=[])))
+
+
+    def test_reads_input_file_as_godot_sends_it(self):
+        # Es el camino que usa la demo: la instantánea va en un archivo UTF-8.
+        payload = self.network(junction(1, queues=[3, 0, 3, 0]))
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "entrada.json")
+            with open(path, "w", encoding="utf-8") as archivo:
+                json.dump(payload, archivo)
+            result = subprocess.run([sys.executable, SCRIPT, "--input-file", path], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        decisions = json.loads(result.stdout)["decisions"]
+        self.assertEqual(len(decisions), 9)
+        self.assertEqual(decisions[0]["priority"], "NS")
+
+    def test_missing_input_file_is_reported(self):
+        result = subprocess.run([sys.executable, SCRIPT, "--input-file", os.path.join(tempfile.gettempdir(), "no-existe-fti.json")], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 2)
 
 
 if __name__ == "__main__":

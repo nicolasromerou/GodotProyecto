@@ -6,6 +6,8 @@ const Chart = preload("res://scripts/demand_chart.gd")
 const IngestClient = preload("res://scripts/ingest_client.gd")
 ## Cruce que se informa a la web como maqueta-01: el central, I-5.
 const REPORTED_JUNCTION: int = 4
+## Archivo con la instantánea que lee el coordinador Python.
+const COORDINATOR_INPUT := "user://coordinador-entrada.json"
 var city_root: Node3D
 var sensor_root: Node3D
 var street_info: Dictionary = {}
@@ -306,6 +308,9 @@ func _sync_cars() -> void:
 func _section(parent: Node, title: String) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
 	scroll.name = title
+	# Sin desplazamiento horizontal la columna toma el ancho del panel y los textos se
+	# ajustan a él; con desplazamiento, crecía hasta el botón más largo y se cortaban.
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	parent.add_child(scroll)
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -322,6 +327,10 @@ func _text(parent: Node, message: String, size: int = 15, color: Color = Color("
 func _button(parent: Node, title: String, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = title
+	# En una columna el ancho lo fija el panel y el texto largo debe partirse. En una
+	# fila, como la barra superior, el botón necesita su ancho natural: partido se encoge.
+	if parent is VBoxContainer:
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	button.pressed.connect(callback)
 	parent.add_child(button)
 	return button
@@ -642,26 +651,39 @@ func _stop_python_coordinator(message: String) -> void:
 		coordinator_button.text = "Iniciar coordinador Python"
 	if coordinator_status != null:
 		coordinator_status.text = message
+	# El aviso inferior pudo haber dicho que Python coordinaba; se corrige con el motivo.
+	if notice_label != null:
+		notice_label.text = message
 
 func _update_python_coordinator() -> void:
 	if not coordinator_active or paused or comparing or coordinator_request_in_flight or world.simulation_time < coordinator_next_request_time:
 		return
 	coordinator_next_request_time = world.simulation_time + 2.5
+	# La instantánea va en un archivo y no como argumento: en Windows el sistema le
+	# quita las comillas internas al JSON y Python no lo puede leer. Se escribe aquí,
+	# en el hilo principal, y solo hay una solicitud en curso a la vez.
+	var input_path: String = ProjectSettings.globalize_path(COORDINATOR_INPUT)
+	var file := FileAccess.open(input_path, FileAccess.WRITE)
+	if file == null:
+		_stop_python_coordinator("No se pudo preparar la entrada del coordinador Python (%s)." % error_string(FileAccess.get_open_error()))
+		return
+	file.store_string(_coordinator_payload())
+	file.close()
 	coordinator_request_in_flight = true
 	coordinator_thread = Thread.new()
-	var error: Error = coordinator_thread.start(_run_python_coordinator.bind(_coordinator_payload(), coordinator_generation))
+	var error: Error = coordinator_thread.start(_run_python_coordinator.bind(input_path, coordinator_generation))
 	if error != OK:
 		coordinator_request_in_flight = false
 		coordinator_thread = null
 		_stop_python_coordinator("No se pudo iniciar el trabajador Python (%s)." % str(error))
 
-func _run_python_coordinator(payload: String, generation: int) -> void:
+func _run_python_coordinator(input_path: String, generation: int) -> void:
 	var output: Array = []
 	var executable: String = OS.get_environment("PYTHON")
 	if executable.is_empty():
 		executable = "python" if OS.get_name() == "Windows" else "python3"
 	var script: String = ProjectSettings.globalize_path("res://tools/traffic_coordinator.py")
-	var exit_code: int = OS.execute(executable, [script, "--input-json", payload], output, true)
+	var exit_code: int = OS.execute(executable, [script, "--input-file", input_path], output, true)
 	var response: String = "\n".join(PackedStringArray(output))
 	call_deferred("_finish_python_coordinator", generation, exit_code, response)
 
@@ -689,7 +711,10 @@ func _finish_python_coordinator(generation: int, exit_code: int, response: Strin
 			return
 		var id: Variant = decision.get("id")
 		var priority: Variant = decision.get("priority")
-		if typeof(id) != TYPE_INT or int(id) < 1 or int(id) > 9 or seen.has(int(id)) or priority not in ["", "NS", "EW"]:
+		# JSON.parse_string entrega todo número como float (1 llega como 1.0). Se acepta
+		# un número sin parte decimal; exigir TYPE_INT rechazaba todos los planes.
+		var whole: bool = typeof(id) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(id)) and float(id) == floorf(float(id))
+		if not whole or int(id) < 1 or int(id) > 9 or seen.has(int(id)) or priority not in ["", "NS", "EW"]:
 			_stop_python_coordinator("Python devolvió una prioridad fuera de rango.")
 			return
 		seen[int(id)] = true
