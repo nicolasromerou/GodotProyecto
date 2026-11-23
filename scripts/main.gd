@@ -1,5 +1,7 @@
 extends Node3D
-## La vista observa el núcleo. No toma decisiones de tráfico ni modifica sus poses.
+## La vista no mueve vehículos ni cambia luces: solo dibuja el núcleo y le pide modo y
+## prioridad desde los controles. El controlador decide cuándo aplicarlos, siempre con
+## amarillo y todo rojo de por medio.
 const TrafficWorld = preload("res://scripts/traffic_world.gd")
 const FleetVisual = preload("res://scripts/stl_fleet.gd")
 
@@ -273,7 +275,7 @@ func _build_hud() -> void:
 	priority_select = OptionButton.new()
 	for label in ["Sin prioridad V2I", "Prioridad N–S", "Prioridad E–O"]:
 		priority_select.add_item(label)
-	priority_select.item_selected.connect(func(index: int): world.controller.priority = ["", "NS", "EW"][index])
+	priority_select.item_selected.connect(func(index: int): world.controller.set_priority(["", "NS", "EW"][index]))
 	row.add_child(priority_select)
 	status_label = _label("", 17, Color("7fe3c4"))
 	queues_label = _label("", 16, Color("dde7ef"))
@@ -319,7 +321,7 @@ func _reset_world() -> void:
 	world.reset()
 	world.set_mode(["fti", "adaptive", "fixed"][mode_select.selected])
 	world.sensor_enabled = sensor_toggle.button_pressed
-	world.controller.priority = ["", "NS", "EW"][priority_select.selected]
+	world.controller.set_priority(["", "NS", "EW"][priority_select.selected])
 	for node in car_nodes.values():
 		node.queue_free()
 	car_nodes.clear()

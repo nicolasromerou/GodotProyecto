@@ -640,7 +640,7 @@ func _stop_python_coordinator(message: String) -> void:
 	coordinator_generation += 1
 	coordinator_active = false
 	for index in range(world.junctions.size()):
-		world.junctions[index].controller.priority = ""
+		world.junctions[index].controller.set_priority("")
 		world.priority_until[index] = 0.0
 	if not coordinator_previous_mode.is_empty():
 		world.set_mode(coordinator_previous_mode)
@@ -726,7 +726,7 @@ func _finish_python_coordinator(generation: int, exit_code: int, response: Strin
 		var controller = world.junctions[index].controller
 		var priority: String = priorities[index]
 		if controller.priority != priority:
-			controller.priority = priority
+			controller.set_priority(priority)
 			world.log_event("I-%d · Coordinador Python: %s" % [index + 1, priority if priority != "" else "sin prioridad"])
 		world.priority_until[index] = world.simulation_time + 5.0 if priority != "" else 0.0
 	coordinator_status.text = "Python activo · demanda y congestión revisadas en los 9 cruces."

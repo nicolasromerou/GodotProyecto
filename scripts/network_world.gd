@@ -112,7 +112,7 @@ func set_depth(value: float) -> void:
 
 func request_priority(axis: String) -> bool:
 	if axis not in ["NS", "EW", ""]: return false
-	junctions[selected].controller.priority = axis
+	junctions[selected].controller.set_priority(axis)
 	priority_until[selected] = simulation_time + 20.0 if axis != "" else 0.0
 	log_event("I-%d · solicitud V2I %s (20 s)" % [selected + 1, axis])
 	return true
@@ -212,7 +212,7 @@ func tick(dt: float) -> void:
 	for index in range(9):
 		var junction = junctions[index]
 		if priority_until[index] > 0.0 and simulation_time >= priority_until[index]:
-			junction.controller.priority = ""
+			junction.controller.set_priority("")
 			priority_until[index] = 0.0
 		var before: String = junction.controller.stage + str(junction.controller.active) + junction.controller.running_mode
 		junction.tick(dt)

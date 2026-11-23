@@ -185,6 +185,26 @@ func _run() -> void:
 	check(Client.retry_delay_ms(1, 90) == 90000, "Se respeta Retry-After cuando la web lo pide")
 	check(Client.header(PackedStringArray(["Content-Type: text/html", "X-Vercel-Mitigated: challenge"]), "x-vercel-mitigated") == "challenge", "Lee cabeceras sin distinguir mayúsculas")
 
+	# --- Dirección de la web (B1) ---------------------------------------------------
+	check(Client.url_host("http://localhost:3000/api/ingesta") == "localhost" and Client.url_host("https://Mi-Web.vercel.app/api") == "mi-web.vercel.app", "Extrae el host sin esquema, puerto ni ruta")
+	check(Client.url_host("http://localhost.evil.com/api/ingesta") == "localhost.evil.com" and Client.url_host("http://localhost:3000@evil.com/api") == "", "Un host que solo empieza con localhost no se confunde con este equipo")
+	var habilitado = func(url: String) -> bool:
+		var client = Client.new()
+		client.queue_path = "user://test-cola-que-no-existe.json"
+		client.configure({"INGESTA_URL": url, "INGESTA_TOKEN": "token-de-prueba"}, true)
+		var resultado: bool = client.enabled
+		client.free()
+		return resultado
+	check(not habilitado.call("http://localhost.evil.com/api/ingesta") and not habilitado.call("http://localhost:3000@evil.com/api"), "http hacia otro equipo deja el envío desactivado")
+	check(habilitado.call("http://localhost:3000/api/ingesta") and habilitado.call("http://127.0.0.1:3000/api/ingesta") and habilitado.call("https://ejemplo.vercel.app/api/ingesta"), "http a este equipo y https a cualquier host siguen funcionando")
+	check(not habilitado.call("http://localhost?x/api") and not habilitado.call("http://localhost#@evil.com/api") and not habilitado.call("http://localhost\\.evil.com/api"), "?, # o \\ antes de la ruta invalidan la dirección")
+	check(Client.decide(ok, 301, "") == "stop" and Client.decide(ok, 307, "") == "stop", "Una redirección detiene el envío: el token no sigue a otro host")
+
+	# --- Prioridad por método (B3) ---------------------------------------------------
+	var con_prioridad = Controller.new("adaptive")
+	var aceptadas: bool = con_prioridad.set_priority("NS") and con_prioridad.priority == "NS" and con_prioridad.set_priority("") and con_prioridad.priority == ""
+	check(aceptadas and not con_prioridad.set_priority("N") and con_prioridad.priority == "", "set_priority acepta solo \"\", NS o EW")
+
 	# --- Demanda abierta ---------------------------------------------------------
 	var first = Network.new()
 	first.load_scenario("open")

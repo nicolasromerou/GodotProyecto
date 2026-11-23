@@ -39,6 +39,9 @@ var _consecutive_failures: int = 0
 func _ready() -> void:
 	_request = HTTPRequest.new()
 	_request.timeout = 10.0
+	# Sin redirecciones: seguir una podría reenviar la cabecera con el token a otro host.
+	# Una respuesta 3xx detiene el envío (ver decide()).
+	_request.max_redirects = 0
 	add_child(_request)
 	_request.request_completed.connect(_on_completed)
 	configure(_read_settings())
@@ -73,8 +76,9 @@ func configure(settings: Dictionary, allow_headless: bool = false) -> void:
 		status = "Envío a la web desactivado en modo sin ventana."
 		return
 	# El token viaja en una cabecera. Sin TLS cualquiera en la red lo leería, así que
-	# http solo se acepta hacia este mismo equipo.
-	var local: bool = _url.begins_with("http://localhost") or _url.begins_with("http://127.0.0.1")
+	# http solo se acepta hacia este mismo equipo. Se compara el host completo: con
+	# begins_with, "http://localhost.evil.com" también pasaba.
+	var local: bool = _url.begins_with("http://") and url_host(_url) in ["localhost", "127.0.0.1"]
 	if not _url.begins_with("https://") and not local:
 		status = "Envío a la web desactivado: INGESTA_URL debe usar https."
 		return
@@ -116,6 +120,19 @@ func _send(junction: RefCounted, now_ms: int) -> void:
 		return
 	_in_flight = true
 
+## Host de una URL, sin esquema, puerto ni ruta y en minúsculas. Devuelve "" si antes de
+## la ruta aparece "@" (http://localhost@evil.com: el host real es el de después) o "?",
+## "#" o "\": HTTPRequest solo corta en "/", así que no se valida algo distinto de lo
+## que Godot usaría para conectarse.
+static func url_host(url: String) -> String:
+	var inicio: int = url.find("://")
+	var resto: String = url.substr(inicio + 3) if inicio >= 0 else url
+	var barra: int = resto.find("/")
+	var autoridad: String = resto if barra < 0 else resto.left(barra)
+	for prohibido: String in ["@", "?", "#", "\\"]:
+		if autoridad.contains(prohibido): return ""
+	return autoridad.get_slice(":", 0).to_lower()
+
 ## Qué hacer con la respuesta de la web. Es pura para poder probarla sin red.
 ##   confirm  200: el lote quedó guardado.
 ##   shrink   413: el lote pesa demasiado.
@@ -129,11 +146,16 @@ static func decide(result: int, code: int, body: String) -> String:
 	if result != HTTPRequest.RESULT_SUCCESS: return "retry"
 	if code == 200: return "confirm"
 	if code == 413: return "shrink"
+	# La web nunca redirige la ingesta: un 3xx indica una INGESTA_URL equivocada (por
+	# ejemplo, http donde corresponde https) y reintentar no lo arregla.
+	if code >= 300 and code < 400: return "stop"
 	if code == 400 or code == 422: return "discard"
 	if code == 404 or code == 405: return "stop"
 	if code == 401 or code == 403:
-		var data: Variant = JSON.parse_string(body)
-		return "stop" if data is Dictionary and data.has("error") else "retry"
+		# JSON.new().parse y no JSON.parse_string: un cuerpo HTML del borde de Vercel no
+		# es JSON, y parse_string dejaría un error falso en godot.log en cada intento.
+		var json := JSON.new()
+		return "stop" if json.parse(body) == OK and json.data is Dictionary and json.data.has("error") else "retry"
 	return "retry"
 
 ## Espera antes del siguiente intento: 5, 10, 20, 40 y 60 s como máximo. Si la web

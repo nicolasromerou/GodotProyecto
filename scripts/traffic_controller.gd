@@ -33,6 +33,14 @@ func _init(selected_mode: String = "fti") -> void:
 	mode = selected_mode
 	running_mode = selected_mode
 
+## Pide prioridad para un eje (V2I o coordinador). Acepta solo "", "NS" o "EW" y no toca
+## las luces: step() decide cuándo dar el verde, con amarillo y todo rojo. Así nadie
+## puede dejar un valor inválido en priority escribiendo el campo directamente.
+func set_priority(axis: String) -> bool:
+	if not GROUPS.has(axis) and axis != "": return false
+	priority = axis
+	return true
+
 func sense(new_counts: Array, new_queues: Variant = null) -> void:
 	counts = _sanitize_readings(new_counts)
 	queues = _sanitize_readings(new_counts if new_queues == null else new_queues)
@@ -123,6 +131,9 @@ func step(dt: float, occupied: bool = false) -> void:
 				axis = "EW"
 			elif ew == 0.0 and ns > 0.0:
 				axis = "NS"
+			# En ALL_RED `active` siempre está vacío, así que esta guarda es siempre
+			# verdadera. Se conserva tal cual para mantener la paridad probada con el
+			# controlador JavaScript original (14 400 estados comparados).
 			elif active.is_empty() and float(wait.max()) > 25.0:
 				axis = "NS" if wait[0] + wait[2] >= wait[1] + wait[3] else "EW"
 		active = GROUPS[axis].duplicate()
