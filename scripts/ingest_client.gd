@@ -11,7 +11,10 @@ extends Node
 
 const Batcher = preload("res://scripts/ingest_batcher.gd")
 const HEARTBEAT_MS: int = 1000
+## Espera tras un fallo recuperable. Se duplica con cada fallo seguido hasta el tope y
+## vuelve al mínimo con el primer envío correcto.
 const RETRY_MS: int = 5000
+const RETRY_MAX_MS: int = 60000
 const SAVE_MS: int = 5000
 
 var batcher = Batcher.new()
@@ -31,6 +34,7 @@ var _next_send_ms: int = 0
 var _next_save_ms: int = 0
 var _saved_size: int = -1
 var _stopped: bool = false
+var _consecutive_failures: int = 0
 
 func _ready() -> void:
 	_request = HTTPRequest.new()
@@ -106,41 +110,84 @@ func _send(junction: RefCounted, now_ms: int) -> void:
 	_next_send_ms = Time.get_ticks_msec() + HEARTBEAT_MS
 	if error != OK:
 		batcher.retry()
-		failed_batches += 1
-		_next_send_ms = Time.get_ticks_msec() + RETRY_MS
-		status = "Envío a la web: no se pudo iniciar la conexión; se reintenta."
+		_fail_and_wait(0)
+		status = "Envío a la web: no se pudo iniciar la conexión; se reintenta en %d s." % int(retry_delay_ms(_consecutive_failures, 0) / 1000)
+		push_warning("Ingesta: HTTPRequest.request() devolvió el error %d." % error)
 		return
 	_in_flight = true
 
-func _on_completed(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
+## Qué hacer con la respuesta de la web. Es pura para poder probarla sin red.
+##   confirm  200: el lote quedó guardado.
+##   shrink   413: el lote pesa demasiado.
+##   discard  400/422: el contenido es inválido; repetirlo daría el mismo error.
+##   stop     la configuración está mal (token, cruce o dirección): reintentar no sirve.
+##   retry    todo lo demás: sin red, la web caída o un rechazo del borde de Vercel.
+## Un 401 o 403 solo detiene el envío si lo respondió nuestra ruta, que siempre manda
+## un JSON con "error". Si viene sin ese JSON lo puso el borde de Vercel (protección
+## contra bots o límite de tráfico) y se pasa con el tiempo, así que se reintenta.
+static func decide(result: int, code: int, body: String) -> String:
+	if result != HTTPRequest.RESULT_SUCCESS: return "retry"
+	if code == 200: return "confirm"
+	if code == 413: return "shrink"
+	if code == 400 or code == 422: return "discard"
+	if code == 404 or code == 405: return "stop"
+	if code == 401 or code == 403:
+		var data: Variant = JSON.parse_string(body)
+		return "stop" if data is Dictionary and data.has("error") else "retry"
+	return "retry"
+
+## Espera antes del siguiente intento: 5, 10, 20, 40 y 60 s como máximo. Si la web
+## pide un plazo con Retry-After, se respeta.
+static func retry_delay_ms(failures: int, retry_after_s: int) -> int:
+	var backoff: int = mini(RETRY_MS * (1 << clampi(failures - 1, 0, 4)), RETRY_MAX_MS)
+	return maxi(backoff, retry_after_s * 1000)
+
+static func header(headers: PackedStringArray, name: String) -> String:
+	for line: String in headers:
+		if line.to_lower().begins_with(name.to_lower() + ":"):
+			return line.substr(name.length() + 1).strip_edges()
+	return ""
+
+func _fail_and_wait(retry_after_s: int) -> void:
+	failed_batches += 1
+	_consecutive_failures += 1
+	_next_send_ms = Time.get_ticks_msec() + retry_delay_ms(_consecutive_failures, retry_after_s)
+
+func _on_completed(result: int, code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	_in_flight = false
+	var text: String = body.get_string_from_utf8()
+	var action: String = decide(result, code, text)
+	if action != "confirm":
+		# Queda en godot.log (user://logs) para diagnosticar después. Las cabeceras
+		# x-vercel-* dicen si el rechazo vino del borde de Vercel y no de nuestra ruta.
+		push_warning("Ingesta: resultado %d, código %d, acción %s, x-vercel-mitigated=%s, x-vercel-error=%s, cuerpo=%s" % [
+			result, code, action, header(headers, "x-vercel-mitigated"), header(headers, "x-vercel-error"), text.left(120).replace("\n", " ")])
 	var queued: int = batcher.pending_events.size() + batcher.pending_counts.size()
-	if result != HTTPRequest.RESULT_SUCCESS or code >= 500:
-		# Sin conexión o la web no pudo guardar: el lote sigue en la cola.
-		batcher.retry()
-		failed_batches += 1
-		_next_send_ms = Time.get_ticks_msec() + RETRY_MS
-		status = "Envío a la web sin conexión · %d registros en cola." % queued
-	elif code == 200:
-		batcher.confirm()
-		sent_batches += 1
-		status = "Envío a la web activo · %d lotes guardados · %d en cola." % [sent_batches, batcher.pending_events.size() + batcher.pending_counts.size()]
-	elif code == 413:
-		batcher.shrink()
-		status = "Envío a la web: lote demasiado grande; se divide."
-	elif code == 401 or code == 403:
-		# El token o el cruce no corresponden: reintentar no lo arregla. Se detiene
-		# hasta que alguien corrija la configuración; la cola no se pierde.
-		batcher.retry()
-		_stopped = true
-		status = "Envío a la web detenido: la web rechazó el token o el cruce (código %d). Revisa la configuración." % code
-		_save_queue()
-	else:
-		# 400 u otro rechazo del contenido: repetir el mismo lote daría el mismo error.
-		batcher.discard()
-		failed_batches += 1
-		status = "Envío a la web: un lote fue rechazado (código %d) y se descartó." % code
-		push_warning("Ingesta: la web rechazó un lote con código %d." % code)
+	match action:
+		"confirm":
+			batcher.confirm()
+			sent_batches += 1
+			_consecutive_failures = 0
+			status = "Envío a la web activo · %d lotes guardados · %d en cola." % [sent_batches, batcher.pending_events.size() + batcher.pending_counts.size()]
+		"shrink":
+			batcher.shrink()
+			status = "Envío a la web: lote demasiado grande; se divide."
+		"discard":
+			batcher.discard()
+			failed_batches += 1
+			status = "Envío a la web: un lote fue rechazado (código %d) y se descartó." % code
+		"stop":
+			# Token, cruce o dirección equivocados: se detiene hasta corregir la
+			# configuración y reiniciar. La cola se conserva.
+			batcher.retry()
+			_stopped = true
+			status = "Envío a la web detenido (código %d): revisa INGESTA_URL e INGESTA_TOKEN y reinicia la maqueta." % code
+			_save_queue()
+		_:
+			batcher.retry()
+			_fail_and_wait(header(headers, "retry-after").to_int())
+			var reason: String = "sin conexión" if result != HTTPRequest.RESULT_SUCCESS else "la web respondió %d" % code
+			status = "Envío a la web: %s · %d registros en cola · reintento en %d s." % [reason, queued, int(maxi(_next_send_ms - Time.get_ticks_msec(), 0) / 1000)]
 
 func _save_queue() -> void:
 	var size: int = batcher.pending_events.size() + batcher.pending_counts.size()

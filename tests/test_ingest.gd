@@ -6,6 +6,7 @@ const Controller = preload("res://scripts/traffic_controller.gd")
 const World = preload("res://scripts/traffic_world.gd")
 const Network = preload("res://scripts/network_world.gd")
 const Batcher = preload("res://scripts/ingest_batcher.gd")
+const Client = preload("res://scripts/ingest_client.gd")
 const Math = preload("res://scripts/traffic_math.gd")
 var passed: int = 0
 var failed: int = 0
@@ -169,6 +170,20 @@ func _run() -> void:
 	other.junction_id = "otro-cruce"
 	check(not other.load_queue(path) and other.pending_events.is_empty(), "No carga la cola de otro cruce")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+	# --- Respuestas de la web ------------------------------------------------------
+	var ok: int = HTTPRequest.RESULT_SUCCESS
+	var own_error: String = "{\"error\":\"Token de cruce inválido\"}"
+	check(Client.decide(ok, 200, "{}") == "confirm", "200 confirma el lote")
+	check(Client.decide(HTTPRequest.RESULT_TIMEOUT, 0, "") == "retry" and Client.decide(HTTPRequest.RESULT_CANT_CONNECT, 0, "") == "retry", "Sin red o sin respuesta se reintenta")
+	check(Client.decide(ok, 502, own_error) == "retry" and Client.decide(ok, 503, "") == "retry", "Si la web no pudo guardar se reintenta")
+	check(Client.decide(ok, 401, own_error) == "stop" and Client.decide(ok, 403, own_error) == "stop", "Token o cruce rechazados por la ruta detienen el envío")
+	check(Client.decide(ok, 403, "<html>Vercel Security Checkpoint</html>") == "retry" and Client.decide(ok, 429, "") == "retry", "Un rechazo del borde de Vercel se reintenta en vez de detener o descartar")
+	check(Client.decide(ok, 404, "") == "stop", "Una dirección equivocada detiene el envío en vez de descartar lotes")
+	check(Client.decide(ok, 400, own_error) == "discard" and Client.decide(ok, 413, own_error) == "shrink", "Lote inválido se descarta y lote pesado se divide")
+	check(Client.retry_delay_ms(1, 0) == 5000 and Client.retry_delay_ms(3, 0) == 20000 and Client.retry_delay_ms(9, 0) == 60000, "La espera crece de 5 s hasta un tope de 60 s")
+	check(Client.retry_delay_ms(1, 90) == 90000, "Se respeta Retry-After cuando la web lo pide")
+	check(Client.header(PackedStringArray(["Content-Type: text/html", "X-Vercel-Mitigated: challenge"]), "x-vercel-mitigated") == "challenge", "Lee cabeceras sin distinguir mayúsculas")
 
 	# --- Demanda abierta ---------------------------------------------------------
 	var first = Network.new()
